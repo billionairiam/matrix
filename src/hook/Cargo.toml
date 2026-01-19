@@ -1,0 +1,9 @@
+[package]
+name = "hook"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+reqwest.workspace = true
+log.workspace = true
+binance.workspace = true

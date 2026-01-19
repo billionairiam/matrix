@@ -1,0 +1,14 @@
+[package]
+name = "manager"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio.workspace = true
+futures.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+
+logger = {  path = "../logger" } 
+store = { path = "../store" }
+trader = { path = "../trader" }

@@ -1,0 +1,28 @@
+[package]
+name = "backtest"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+hostname.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+sha2.workspace = true
+hex.workspace = true
+zip.workspace = true
+tempfile.workspace = true
+tokio-util.workspace = true
+walkdir.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+
+mcp = { path = "../mcp" }
+market = { path = "../market" }
+decision = { path = "../decision" }
+logger = { path = "../logger" }
+store = { path = "../store" }
+pool = { path = "../pool" }
