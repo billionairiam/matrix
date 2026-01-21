@@ -1,4 +1,7 @@
-use crate::Provider;
+use std::sync::Arc;
+
+use crate::{Provider, client::Client};
+use anyhow::Result;
 
 pub const PROVIDER_CUSTOM: &str = "CUSTOM";
 pub const DEFAULT_CUSTOM_BASE_URL: &str = "";
@@ -19,4 +22,15 @@ impl Provider for CustomProvider {
     fn default_model(&self) -> &str {
         DEFAULT_CUSTOM_MODEL
     }
+}
+
+pub fn new_custom_client(api_key: &str, base_url: &str) -> Result<Client> {
+    let dp = CustomProvider;
+
+    let client = Client::builder(Arc::new(dp))
+        .with_api_key(api_key)
+        .with_base_url(base_url)
+        .build();
+
+    Ok(client)
 }

@@ -279,7 +279,7 @@ async fn fetch_market_data_with_strategy(ctx: &mut Context, engine: &StrategyEng
 
     // 1. Fetch data for position coins
     for pos in &ctx.positions {
-        match get_with_timeframes(&pos.symbol, &mut timeframes, Some(primary_tf.clone()), kline_count as usize) {
+        match get_with_timeframes(&pos.symbol, &mut timeframes, Some(primary_tf.clone())).await {
             Ok(data) => {
                 ctx.market_data_map.insert(pos.symbol.clone(), data);
             }
@@ -298,7 +298,7 @@ async fn fetch_market_data_with_strategy(ctx: &mut Context, engine: &StrategyEng
             continue;
         }
 
-        match get_with_timeframes(&coin.symbol, &mut timeframes, Some(primary_tf.clone()), kline_count as usize) {
+        match get_with_timeframes(&coin.symbol, &mut timeframes, Some(primary_tf.clone())).await {
             Ok(data) => {
                 // Liquidity Filter
                 let is_existing_position = position_symbols.contains(&coin.symbol);
@@ -397,7 +397,7 @@ async fn fetch_market_data_for_context(ctx: &mut Context, oi_client: &CoinPoolCl
     const MIN_OI_THRESHOLD_MILLIONS: f64 = 15.0;
 
     for symbol in symbol_set {
-        if let Ok(data) = get(&symbol) {
+        if let Ok(data) = get(&symbol).await {
             let is_existing = position_symbols.contains(&symbol);
             if !is_existing {
                  if let Some(oi) = &data.open_interest {

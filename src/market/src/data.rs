@@ -1,11 +1,13 @@
+use crate::monitor::WSMonitor;
+
 use super::types::{Data, IntradayData, Kline, LongerTermData, OIData, TimeframeSeriesData};
 
 use anyhow::{Result, anyhow};
 use chrono::Duration as ChronoDuration;
 use dashmap::DashMap;
-use logger::info; // Hint usage
+use logger::info;
 use once_cell::sync::Lazy;
-use reqwest::blocking::Client; // Using blocking client to match Go's synchronous flow, usually you'd want async
+use reqwest::Client;
 use std::fmt::Write;
 use std::time::{Duration, Instant};
 
@@ -17,26 +19,15 @@ struct FundingRateCache {
 static FUNDING_RATE_MAP: Lazy<DashMap<String, FundingRateCache>> = Lazy::new(DashMap::new);
 const FR_CACHE_TTL: Duration = Duration::from_secs(3600); // 1 Hour
 
-// Mocking WSMonitorCli as a global static for this translation.
-// In a real Rust app, this would likely be passed as a dependency.
-pub struct WSMonitorCli;
-impl WSMonitorCli {
-    pub fn get_current_klines(symbol: &str, interval: &str) -> Result<Vec<Kline>, String> {
-        // This is where you would hook into your actual WebSocket storage
-        // returning Err for now as placeholder
-        Err(format!(
-            "WSMonitorCli not implemented for {} {}",
-            symbol, interval
-        ))
-    }
-}
-
 /// Get retrieves market data for the specified token
-pub fn get(symbol: &str) -> Result<Data> {
+pub async fn get(symbol: &str) -> Result<Data> {
     let symbol = normalize(symbol);
+    let wsmonitor_cli = WSMonitor::new(5 as usize);
 
     // Get 3-minute K-line data (latest 10+)
-    let klines3m = WSMonitorCli::get_current_klines(&symbol, "3m")
+    let klines3m = wsmonitor_cli
+        .get_current_klines(&symbol, "3m")
+        .await
         .map_err(|e| anyhow!("Failed to get 3-minute K-line: {}", e))?;
 
     // Data staleness detection
@@ -49,7 +40,9 @@ pub fn get(symbol: &str) -> Result<Data> {
     }
 
     // Get 4-hour K-line data
-    let klines4h = WSMonitorCli::get_current_klines(&symbol, "4h")
+    let klines4h = wsmonitor_cli
+        .get_current_klines(&symbol, "4h")
+        .await
         .map_err(|e| anyhow!("Failed to get 4-hour K-line: {}", e))?;
 
     if klines3m.is_empty() {
@@ -85,10 +78,10 @@ pub fn get(symbol: &str) -> Result<Data> {
     }
 
     // Get OI data
-    let open_interest = get_open_interest_data(&symbol).ok(); // Convert Err to None
+    let open_interest = get_open_interest_data(&symbol).await.ok(); // Convert Err to None
 
     // Get Funding Rate
-    let funding_rate = get_funding_rate(&symbol).unwrap_or(0.0);
+    let funding_rate = get_funding_rate(&symbol).await.unwrap_or(0.0);
 
     // Calculate intraday series data
     let intraday_series = calculate_intraday_series(&klines3m);
@@ -113,11 +106,10 @@ pub fn get(symbol: &str) -> Result<Data> {
 }
 
 /// get_with_timeframes retrieves market data for specified multiple timeframes
-pub fn get_with_timeframes(
+pub async fn get_with_timeframes(
     symbol: &str,
     timeframes: &mut Vec<String>,
     primary_timeframe: Option<String>,
-    _count: usize, // Unused in Go logic but kept for signature compatibility
 ) -> Result<Data> {
     let symbol = normalize(symbol);
 
@@ -135,10 +127,10 @@ pub fn get_with_timeframes(
 
     let mut timeframe_data = std::collections::HashMap::new();
     let mut primary_klines: Option<Vec<Kline>> = None;
-
+    let wsmonitor_cli = WSMonitor::new(5 as usize);
     // Get K-line data for each timeframe
     for tf in timeframes {
-        match WSMonitorCli::get_current_klines(&symbol, tf) {
+        match wsmonitor_cli.get_current_klines(&symbol, tf).await {
             Ok(klines) => {
                 if klines.is_empty() {
                     info!("⚠️ {} {} K-line data is empty", symbol, tf);
@@ -182,8 +174,8 @@ pub fn get_with_timeframes(
     let price_change_1h = calculate_price_change_by_bars(&primary_klines, &primary_tf, 60);
     let price_change_4h = calculate_price_change_by_bars(&primary_klines, &primary_tf, 240);
 
-    let open_interest = get_open_interest_data(&symbol).ok();
-    let funding_rate = get_funding_rate(&symbol).unwrap_or(0.0);
+    let open_interest = get_open_interest_data(&symbol).await.ok();
+    let funding_rate = get_funding_rate(&symbol).await.unwrap_or(0.0);
 
     Ok(Data {
         symbol,
@@ -470,7 +462,7 @@ fn calculate_longer_term_data(klines: &[Kline]) -> LongerTermData {
 // API Utilities
 // -----------------------------------------------------------------------------
 
-fn get_open_interest_data(symbol: &str) -> Result<OIData, String> {
+async fn get_open_interest_data(symbol: &str) -> Result<OIData, String> {
     let url = format!(
         "https://fapi.binance.com/fapi/v1/openInterest?symbol={}",
         symbol
@@ -480,8 +472,10 @@ fn get_open_interest_data(symbol: &str) -> Result<OIData, String> {
     let resp = client
         .get(&url)
         .send()
+        .await
         .map_err(|e| e.to_string())?
         .text()
+        .await
         .map_err(|e| e.to_string())?;
 
     #[derive(serde::Deserialize)]
@@ -499,7 +493,7 @@ fn get_open_interest_data(symbol: &str) -> Result<OIData, String> {
     })
 }
 
-fn get_funding_rate(symbol: &str) -> Result<f64, String> {
+async fn get_funding_rate(symbol: &str) -> Result<f64, String> {
     // Check cache
     if let Some(cached) = FUNDING_RATE_MAP.get(symbol) {
         if cached.updated_at.elapsed() < FR_CACHE_TTL {
@@ -516,8 +510,10 @@ fn get_funding_rate(symbol: &str) -> Result<f64, String> {
     let resp = client
         .get(&url)
         .send()
+        .await
         .map_err(|e| e.to_string())?
         .text()
+        .await
         .map_err(|e| e.to_string())?;
 
     #[derive(serde::Deserialize)]

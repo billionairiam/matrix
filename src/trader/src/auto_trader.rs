@@ -35,7 +35,20 @@ use store::order::TraderOrder;
 use store::store::Store;
 use store::strategy::StrategyConfig;
 
-// To replace Go's generic map return types, we define structs for common data.
+#[derive(Debug, Serialize)]
+pub struct PositionResponse {
+    pub symbol: String,
+    pub side: String,
+    pub entry_price: f64,
+    pub mark_price: f64,
+    pub quantity: f64,
+    pub leverage: i32,
+    pub unrealized_pnl: f64,
+    pub unrealized_pnl_pct: f64,
+    pub liquidation_price: f64,
+    pub margin_used: f64,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct AccountBalance {
     pub total_wallet_balance: f64,
@@ -697,7 +710,7 @@ impl AutoTrader {
         }
 
         // Market Data
-        let market_data = get(&decision.symbol)?;
+        let market_data = get(&decision.symbol).await?;
 
         // Quantity Calc
         let quantity = decision.position_size_usd.unwrap() / market_data.current_price;
@@ -804,7 +817,7 @@ impl AutoTrader {
         }
 
         // Market Data
-        let market_date = get(&decision.symbol)?;
+        let market_date = get(&decision.symbol).await?;
 
         // Quantity Calc
         let quantity = decision.position_size_usd.unwrap() / market_date.current_price;
@@ -906,7 +919,7 @@ impl AutoTrader {
     ) -> Result<()> {
         info!("  🔄 Close Long: {}", decision.symbol);
 
-        let market_date = get(&decision.symbol)?;
+        let market_date = get(&decision.symbol).await?;
         record.price = market_date.current_price;
 
         // Get entry price (for P&L calculation)
@@ -949,7 +962,7 @@ impl AutoTrader {
         info!("  🔄 Close Short: {}", decision.symbol);
 
         // Get current price
-        let market_data = get(&decision.symbol)?;
+        let market_data = get(&decision.symbol).await?;
         record.price = market_data.current_price;
 
         // Get entry price (for P&L calculation)
@@ -1354,6 +1367,88 @@ impl AutoTrader {
 
     pub async fn set_override_base_prompt(&self, ov: bool) {
         *self.override_base_prompt.write().await = ov;
+    }
+
+    pub async fn get_positions(&self) -> Result<Vec<PositionResponse>> {
+        // 获取 positions，类型推断为 Vec<Map<String, Value>>
+        let positions: Vec<Map<String, Value>> = self
+            .trader
+            .get_positions()
+            .await
+            .map_err(|e| anyhow!("failed to get positions: {:?}", e))?;
+
+        let mut result = Vec::new();
+
+        for pos in &positions {
+            let symbol = pos
+                .get("symbol")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            let side = pos
+                .get("side")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            let entry_price = pos
+                .get("entryPrice")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+
+            let mark_price = pos.get("markPrice").and_then(|v| v.as_f64()).unwrap_or(0.0);
+
+            // Go逻辑: quantity = abs(positionAmt)
+            let raw_qty = pos
+                .get("positionAmt")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            let quantity = raw_qty.abs();
+
+            let unrealized_pnl = pos
+                .get("unRealizedProfit")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+
+            let liquidation_price = pos
+                .get("liquidationPrice")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+
+            // Go逻辑: leverage 默认为 10
+            let leverage = pos
+                .get("leverage")
+                .and_then(|v| v.as_f64())
+                .map(|v| v as i32)
+                .unwrap_or(10);
+
+            // 计算 Margin Used
+            // Go: (quantity * markPrice) / float64(leverage)
+            let margin_used = if leverage != 0 {
+                (quantity * mark_price) / leverage as f64
+            } else {
+                0.0
+            };
+
+            // 计算 P&L Percentage
+            let pnl_pct = calculate_pn_l_percentage(unrealized_pnl, margin_used);
+
+            result.push(PositionResponse {
+                symbol,
+                side,
+                entry_price,
+                mark_price,
+                quantity,
+                leverage,
+                unrealized_pnl,
+                unrealized_pnl_pct: pnl_pct,
+                liquidation_price,
+                margin_used,
+            });
+        }
+
+        Ok(result)
     }
 }
 

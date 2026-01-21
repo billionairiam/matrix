@@ -198,7 +198,7 @@ impl StrategyEngine {
 
     /// Fetches market data based on strategy configuration
     pub async fn fetch_market_data(&self, symbol: &str) -> Result<Data> {
-        get(symbol)
+        get(symbol).await
     }
 
     /// Fetches external data sources

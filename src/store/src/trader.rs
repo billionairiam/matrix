@@ -64,8 +64,8 @@ fn default_prompt_template() -> String {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TraderFullConfig {
     pub trader: Trader,
-    pub ai_model: AIModel,
-    pub exchange: Exchange,
+    pub ai_model: Option<AIModel>,
+    pub exchange: Option<Exchange>,
     pub strategy: Option<Strategy>,
 }
 
@@ -437,8 +437,8 @@ impl TraderStore {
 
         Ok(TraderFullConfig {
             trader,
-            ai_model,
-            exchange,
+            ai_model: Some(ai_model),
+            exchange: Some(exchange),
             strategy,
         })
     }

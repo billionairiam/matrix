@@ -13,6 +13,8 @@ logger = {  path = "../logger" }
 manager = { path = "../manager" }
 store = { path = "../store" }
 trader = { path = "../trader" }
+market = { path = "../market" }
+mcp = { path = "../mcp" }
 
 serde_json.workspace = true
 serde.workspace = true
@@ -28,3 +30,5 @@ uuid.workspace = true
 reqwest.workspace = true
 futures.workspace = true
 if-addrs.workspace = true
+sqlx.workspace = true
+tokio-util.workspace = true
