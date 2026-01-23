@@ -18,8 +18,8 @@ binance.workspace = true
 rand.workspace = true
 hyperliquid_rust_sdk.workspace = true
 alloy.workspace = true
+tracing.workspace = true
 
-logger = { path = "../logger" }
 hook = { path = "../hook" }
 store = { path = "../store" }
 mcp = { path = "../mcp" }

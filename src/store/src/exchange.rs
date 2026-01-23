@@ -4,14 +4,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::{QueryBuilder, Row, SqlitePool, sqlite::SqliteRow};
 use std::sync::Arc;
 
-use super::CryptoFunc;
+use super::CryptoProvider;
 
-// We assume crate::logger exists as per hint
-use logger;
-
-// ==========================================
-// Struct Definitions
-// ==========================================
+use tracing::{debug, instrument};
 
 /// Exchange exchange configuration
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -51,25 +46,12 @@ pub struct Exchange {
 #[derive(Clone)]
 pub struct ExchangeStore {
     pool: SqlitePool,
-    encrypt_func: Option<Arc<CryptoFunc>>,
-    decrypt_func: Option<Arc<CryptoFunc>>,
+    provider: Arc<dyn CryptoProvider>,
 }
 
-// ==========================================
-// Implementation
-// ==========================================
-
 impl ExchangeStore {
-    pub fn new(
-        pool: SqlitePool,
-        encrypt_func: Option<CryptoFunc>,
-        decrypt_func: Option<CryptoFunc>,
-    ) -> Self {
-        Self {
-            pool,
-            encrypt_func: encrypt_func.map(Arc::new),
-            decrypt_func: decrypt_func.map(Arc::new),
-        }
+    pub fn new(pool: SqlitePool, provider: Arc<dyn CryptoProvider>) -> Self {
+        Self { pool, provider }
     }
 
     pub async fn init_tables(&self) -> Result<()> {
@@ -134,19 +116,11 @@ impl ExchangeStore {
     }
 
     fn encrypt(&self, plaintext: &str) -> String {
-        if let Some(func) = &self.encrypt_func {
-            func(plaintext)
-        } else {
-            plaintext.to_string()
-        }
+        self.provider.encrypt(plaintext)
     }
 
     fn decrypt(&self, encrypted: &str) -> String {
-        if let Some(func) = &self.decrypt_func {
-            func(encrypted)
-        } else {
-            encrypted.to_string()
-        }
+        self.provider.decrypt(encrypted)
     }
 
     /// List gets user's exchange list
@@ -188,8 +162,15 @@ impl ExchangeStore {
     }
 
     /// Update updates exchange configuration
-    /// Note: This function takes many arguments to match the Go implementation.
-    /// In idiomatic Rust, a struct parameter (e.g., UpdateExchangeParams) is preferred.
+    #[instrument(skip(
+        self,
+        api_key,
+        secret_key,
+        passphrase,
+        aster_private_key,
+        lighter_private_key,
+        lighter_api_key_private_key
+    ))]
     #[allow(clippy::too_many_arguments)]
     pub async fn update(
         &self,
@@ -208,11 +189,9 @@ impl ExchangeStore {
         lighter_private_key: &str,
         lighter_api_key_private_key: &str,
     ) -> Result<()> {
-        logger::debug!(
+        debug!(
             "🔧 ExchangeStore.Update: userID={}, id={}, enabled={}",
-            user_id,
-            id,
-            enabled
+            user_id, id, enabled
         );
 
         // Use QueryBuilder for dynamic update query

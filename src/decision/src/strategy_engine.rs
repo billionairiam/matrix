@@ -8,10 +8,8 @@ use chrono::Utc;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
 use crate::engine::{Context, PositionInfo, CandidateCoin};
-
-use logger;
+use tracing::info;
 use market::{
     types::{Data, TimeframeSeriesData},
     data::{normalize, get}
@@ -101,11 +99,11 @@ impl StrategyEngine {
         // Set custom API URL (if configured)
         if !coin_source.coin_pool_api_url.is_empty() {
             self.coin_client.set_coin_pool_api(coin_source.coin_pool_api_url.clone()).await;
-            logger::info!("✓ Using strategy-configured AI500 API URL: {}", coin_source.coin_pool_api_url);
+            info!("✓ Using strategy-configured AI500 API URL: {}", coin_source.coin_pool_api_url);
         }
         if !coin_source.oi_top_api_url.is_empty() {
             self.coin_client.set_oi_top_api(coin_source.oi_top_api_url.clone()).await;
-            logger::info!("✓ Using strategy-configured OI Top API URL: {}", coin_source.oi_top_api_url);
+            info!("✓ Using strategy-configured OI Top API URL: {}", coin_source.oi_top_api_url);
         }
 
         match coin_source.source_type.as_str() {
@@ -130,7 +128,7 @@ impl StrategyEngine {
                                 symbol_sources.entry(coin.symbol).or_default().push("ai500".to_string());
                             }
                         }
-                        Err(e) => logger::info!("⚠️  Failed to get AI500 coin pool: {:?}", e),
+                        Err(e) => info!("⚠️  Failed to get AI500 coin pool: {:?}", e),
                     }
                 }
 
@@ -142,7 +140,7 @@ impl StrategyEngine {
                                 symbol_sources.entry(coin.symbol).or_default().push("oi_top".to_string());
                             }
                         }
-                        Err(e) => logger::info!("⚠️  Failed to get OI Top: {:?}", e),
+                        Err(e) => info!("⚠️  Failed to get OI Top: {:?}", e),
                     }
                 }
 
@@ -211,7 +209,7 @@ impl StrategyEngine {
                     external_data.insert(source.name.clone(), data);
                 }
                 Err(e) => {
-                    logger::info!("⚠️  Failed to fetch external data source [{}]: {:?}", source.name, e);
+                    info!("⚠️  Failed to fetch external data source [{}]: {:?}", source.name, e);
                 }
             }
         }
@@ -259,7 +257,7 @@ impl StrategyEngine {
                 }
                 Ok(None) => {}
                 Err(e) => {
-                    logger::info!("⚠️  Failed to fetch quantitative data for {}: {:?}", symbol, e);
+                    info!("⚠️  Failed to fetch quantitative data for {}: {:?}", symbol, e);
                 }
             }
         }

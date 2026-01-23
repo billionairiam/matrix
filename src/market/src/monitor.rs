@@ -6,7 +6,7 @@ use tokio::sync::{RwLock, Semaphore};
 
 use crate::api_client::APIClient;
 use crate::types::Kline;
-use logger::{error, info, warn};
+use tracing::{error, info, warn};
 
 use super::combined_streams::CombinedStreamsClient;
 use super::websocket_client::{KlineWSData, WSClient};

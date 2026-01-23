@@ -16,8 +16,6 @@ use decision::engine::AccountInfo;
 use decision::engine::Context as EngineContext;
 use decision::strategy_engine::StrategyEngine;
 use futures::future::join_all;
-use logger::error;
-use logger::info;
 use market::data::get_with_timeframes;
 use market::types::Data;
 use mcp::custom_client::new_custom_client;
@@ -27,6 +25,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use serde_json::json;
 use store::strategy::{Strategy, StrategyConfig};
+use tracing::{error, info};
 use uuid::Uuid;
 
 #[derive(Deserialize)]
@@ -281,6 +280,7 @@ async fn run_real_ai_test(
     let model = state
         .store
         .ai_model()
+        .await
         .get(user_id, model_id)
         .await
         .context("failed to get AI model")?;

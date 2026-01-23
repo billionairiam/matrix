@@ -5,11 +5,11 @@ use super::types::{Data, IntradayData, Kline, LongerTermData, OIData, TimeframeS
 use anyhow::{Result, anyhow};
 use chrono::Duration as ChronoDuration;
 use dashmap::DashMap;
-use logger::info;
 use once_cell::sync::Lazy;
 use reqwest::Client;
 use std::fmt::Write;
 use std::time::{Duration, Instant};
+use tracing::info;
 
 struct FundingRateCache {
     rate: f64,

@@ -4,7 +4,25 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-sha2.workspace = true
+anyhow.workspace = true
+dotenvy = "0.15"
+tokio.workspace = true
+tracing.workspace = true
+
+api = { path = "src/api" }
+auth = { path = "src/auth" }
+backtest = { path = "src/backtest" }
+config_lib = { path = "src/config", package = "config" }
+crypto = { path = "src/crypto" }
+decision = { path = "src/decision" }
+hook = { path = "src/hook" }
+logger = { path = "src/logger" }
+manager = { path = "src/manager" }
+market = { path = "src/market" }
+mcp = { path = "src/mcp" }
+pool = { path = "src/pool" }
+store = { path = "src/store" }
+trader = { path = "src/trader" }
 
 [workspace]
 members = [
@@ -49,6 +67,7 @@ rand = "0.8"          # For random nonce/key generation
 thiserror = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-appender = "*"
 hostname = "0.3"
 tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = { version = "0.20", features = ["native-tls"] }

@@ -5,10 +5,6 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
 use std::collections::HashMap;
 
-// ==========================================
-// Struct Definitions
-// ==========================================
-
 /// TraderPosition position record (complete open/close position tracking)
 #[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
 pub struct TraderPosition {
@@ -67,10 +63,6 @@ pub struct RecentTrade {
 pub struct PositionStore {
     db: SqlitePool,
 }
-
-// ==========================================
-// Implementation
-// ==========================================
 
 impl PositionStore {
     pub fn new(db: SqlitePool) -> Self {
@@ -466,10 +458,6 @@ impl PositionStore {
 
         Ok(trades)
     }
-
-    // ==========================================
-    // Math Helpers
-    // ==========================================
 
     fn calculate_sharpe_ratio(pnls: &[f64]) -> f64 {
         if pnls.len() < 2 {

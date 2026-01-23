@@ -581,7 +581,6 @@ dependencies = [
  "decision",
  "futures",
  "if-addrs",
- "logger",
  "manager",
  "market",
  "mcp",
@@ -956,7 +955,6 @@ dependencies = [
  "decision",
  "hex",
  "hostname",
- "logger",
  "market",
  "mcp",
  "pool",
@@ -969,6 +967,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tokio-util",
+ "tracing",
  "uuid 1.19.0",
  "walkdir",
  "zip 7.0.0",
@@ -1520,6 +1519,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "crossbeam-channel"
+version = "0.5.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82b8f8f868b36967f9606790d1903570de9ceaf870a7bf9fbbd3016d636a2cb2"
+dependencies = [
+ "crossbeam-utils",
+]
+
+[[package]]
 name = "crossbeam-deque"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1671,7 +1679,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
- "logger",
  "market",
  "mcp",
  "pool",
@@ -1680,6 +1687,7 @@ dependencies = [
  "serde",
  "serde_json",
  "store",
+ "tracing",
 ]
 
 [[package]]
@@ -3660,6 +3668,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "tracing",
+ "tracing-appender",
  "tracing-subscriber",
 ]
 
@@ -3690,10 +3699,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "futures",
- "logger",
  "serde_json",
  "store",
  "tokio",
+ "tracing",
  "trader",
 ]
 
@@ -3742,7 +3751,24 @@ checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
 name = "matrix"
 version = "0.1.0"
 dependencies = [
- "sha2",
+ "anyhow",
+ "api",
+ "auth",
+ "backtest",
+ "config",
+ "crypto",
+ "decision",
+ "dotenvy",
+ "hook",
+ "logger",
+ "manager",
+ "market",
+ "mcp",
+ "pool",
+ "store",
+ "tokio",
+ "tracing",
+ "trader",
 ]
 
 [[package]]
@@ -5819,6 +5845,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -6394,6 +6421,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing-appender"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "786d480bce6247ab75f005b14ae1624ad978d3029d9113f0a22fa1ac773faeaf"
+dependencies = [
+ "crossbeam-channel",
+ "thiserror 2.0.17",
+ "time",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "tracing-attributes"
 version = "0.1.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6468,7 +6507,6 @@ dependencies = [
  "hex",
  "hook",
  "hyperliquid_rust_sdk",
- "logger",
  "market",
  "mcp",
  "pool",
@@ -6478,6 +6516,7 @@ dependencies = [
  "serde_json",
  "store",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

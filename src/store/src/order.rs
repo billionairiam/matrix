@@ -3,10 +3,6 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
 
-// ==========================================
-// Struct Definitions
-// ==========================================
-
 /// TraderOrder trader order record
 #[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow, Default)]
 pub struct TraderOrder {
@@ -97,10 +93,6 @@ pub struct CompletedOrder {
 pub struct OrderStore {
     db: SqlitePool,
 }
-
-// ==========================================
-// Implementation
-// ==========================================
 
 impl OrderStore {
     pub fn new(db: SqlitePool) -> Self {

@@ -3,6 +3,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use super::Trader;
 use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use chrono::Utc;
@@ -12,9 +13,7 @@ use ethers::utils::keccak256;
 use reqwest::{Client, Method};
 use serde_json::{Map, Value};
 use tokio::sync::RwLock;
-
-use super::Trader;
-use logger;
+use tracing::info;
 
 const BASE_URL: &str = "https://fapi.asterdex.com";
 
@@ -400,13 +399,13 @@ impl Trader for AsterTrader {
         }
 
         if !found_usdt {
-            logger::info!("⚠️  USDT asset record not found!");
+            info!("⚠️  USDT asset record not found!");
         }
 
         let positions = match self.get_positions().await {
             Ok(p) => p,
             Err(e) => {
-                logger::info!("⚠️  Failed to get position information: {}", e);
+                info!("⚠️  Failed to get position information: {}", e);
                 let mut fallback = Map::new();
                 fallback.insert("totalWalletBalance".into(), cross_wallet_balance.into());
                 fallback.insert("availableBalance".into(), available_balance.into());
@@ -515,7 +514,7 @@ impl Trader for AsterTrader {
 
     async fn open_long(&self, symbol: &str, quantity: f64, leverage: i32) -> Result<Value> {
         if let Err(e) = self.cancel_all_orders(symbol).await {
-            logger::info!("  ⚠ Failed to cancel pending orders: {}", e);
+            info!("  ⚠ Failed to cancel pending orders: {}", e);
         }
 
         self.set_leverage(symbol, leverage)
@@ -532,7 +531,7 @@ impl Trader for AsterTrader {
         let price_str = Self::format_float_with_precision(formatted_price, prec.price_precision);
         let qty_str = Self::format_float_with_precision(formatted_qty, prec.quantity_precision);
 
-        logger::info!(
+        info!(
             "  📏 Precision handling: price {:.8} -> {} (prec={}), quantity {:.8} -> {} (prec={})",
             limit_price,
             price_str,
@@ -556,7 +555,7 @@ impl Trader for AsterTrader {
 
     async fn open_short(&self, symbol: &str, quantity: f64, leverage: i32) -> Result<Value> {
         if let Err(e) = self.cancel_all_orders(symbol).await {
-            logger::info!("  ⚠ Failed to cancel pending orders: {}", e);
+            info!("  ⚠ Failed to cancel pending orders: {}", e);
         }
 
         self.set_leverage(symbol, leverage)
@@ -573,7 +572,7 @@ impl Trader for AsterTrader {
         let price_str = Self::format_float_with_precision(formatted_price, prec.price_precision);
         let qty_str = Self::format_float_with_precision(formatted_qty, prec.quantity_precision);
 
-        logger::info!(
+        info!(
             "  📏 Precision handling: price {:.8} -> {} (prec={}), quantity {:.8} -> {} (prec={})",
             limit_price,
             price_str,
@@ -607,7 +606,7 @@ impl Trader for AsterTrader {
             if quantity == 0.0 {
                 return Err(anyhow!("no long position found for {}", symbol));
             }
-            logger::info!("  📊 Retrieved long position quantity: {:.8}", quantity);
+            info!("  📊 Retrieved long position quantity: {:.8}", quantity);
         }
 
         let price = self.get_market_price(symbol).await?;
@@ -620,7 +619,7 @@ impl Trader for AsterTrader {
         let price_str = Self::format_float_with_precision(formatted_price, prec.price_precision);
         let qty_str = Self::format_float_with_precision(formatted_qty, prec.quantity_precision);
 
-        logger::info!(
+        info!(
             "  📏 Precision handling: price {:.8} -> {} (prec={}), quantity {:.8} -> {} (prec={})",
             limit_price,
             price_str,
@@ -640,14 +639,13 @@ impl Trader for AsterTrader {
         params.insert("price".into(), price_str.into());
 
         let res = self.request(Method::POST, "/fapi/v3/order", params).await?;
-        logger::info!(
+        info!(
             "✓ Successfully closed long position: {} quantity: {}",
-            symbol,
-            qty_str
+            symbol, qty_str
         );
 
         if let Err(e) = self.cancel_all_orders(symbol).await {
-            logger::info!("  ⚠ Failed to cancel pending orders: {}", e);
+            info!("  ⚠ Failed to cancel pending orders: {}", e);
         }
 
         Ok(res)
@@ -665,7 +663,7 @@ impl Trader for AsterTrader {
             if quantity == 0.0 {
                 return Err(anyhow!("no short position found for {}", symbol));
             }
-            logger::info!("  📊 Retrieved short position quantity: {:.8}", quantity);
+            info!("  📊 Retrieved short position quantity: {:.8}", quantity);
         }
 
         let price = self.get_market_price(symbol).await?;
@@ -678,7 +676,7 @@ impl Trader for AsterTrader {
         let price_str = Self::format_float_with_precision(formatted_price, prec.price_precision);
         let qty_str = Self::format_float_with_precision(formatted_qty, prec.quantity_precision);
 
-        logger::info!(
+        info!(
             "  📏 Precision handling: price {:.8} -> {} (prec={}), quantity {:.8} -> {} (prec={})",
             limit_price,
             price_str,
@@ -698,14 +696,13 @@ impl Trader for AsterTrader {
         params.insert("price".into(), price_str.into());
 
         let res = self.request(Method::POST, "/fapi/v3/order", params).await?;
-        logger::info!(
+        info!(
             "✓ Successfully closed short position: {} quantity: {}",
-            symbol,
-            qty_str
+            symbol, qty_str
         );
 
         if let Err(e) = self.cancel_all_orders(symbol).await {
-            logger::info!("  ⚠ Failed to cancel pending orders: {}", e);
+            info!("  ⚠ Failed to cancel pending orders: {}", e);
         }
 
         Ok(res)
@@ -735,7 +732,7 @@ impl Trader for AsterTrader {
             .await
         {
             Ok(_) => {
-                logger::info!("  ✓ {} margin mode has been set to {}", symbol, margin_type);
+                info!("  ✓ {} margin mode has been set to {}", symbol, margin_type);
                 Ok(())
             }
             Err(e) => {
@@ -743,21 +740,20 @@ impl Trader for AsterTrader {
                 if err_msg.contains("No need to change")
                     || err_msg.contains("Margin type cannot be changed")
                 {
-                    logger::info!(
+                    info!(
                         "  ✓ {} margin mode is already {} or cannot be changed",
-                        symbol,
-                        margin_type
+                        symbol, margin_type
                     );
                     Ok(())
                 } else if err_msg.contains("Multi-Assets mode")
                     || err_msg.contains("-4168")
                     || err_msg.contains("4168")
                 {
-                    logger::info!(
+                    info!(
                         "  ⚠️ {} detected multi-assets mode, forcing cross margin mode",
                         symbol
                     );
-                    logger::info!(
+                    info!(
                         "  💡 Tip: To use isolated margin mode, please disable multi-assets mode on the exchange"
                     );
                     Ok(())
@@ -765,12 +761,12 @@ impl Trader for AsterTrader {
                     || err_msg.contains("portfolio")
                     || err_msg.contains("Portfolio")
                 {
-                    logger::info!("  ❌ {} detected unified account API", symbol);
+                    info!("  ❌ {} detected unified account API", symbol);
                     Err(anyhow!(
                         "please use 'Spot & Futures Trading' API permission, not 'Unified Account API'"
                     ))
                 } else {
-                    logger::info!("  ⚠️ Failed to set margin mode: {}", e);
+                    info!("  ⚠️ Failed to set margin mode: {}", e);
                     // Don't error out completely, just log
                     Ok(())
                 }
@@ -891,16 +887,14 @@ impl Trader for AsterTrader {
                 {
                     Ok(_) => {
                         canceled_count += 1;
-                        logger::info!(
+                        info!(
                             "  ✓ Canceled stop-loss order (order ID: {}, type: {}, direction: {})",
-                            order_id,
-                            order_type,
-                            pos_side
+                            order_id, order_type, pos_side
                         );
                     }
                     Err(e) => {
                         let err_msg = format!("order ID {}: {}", order_id, e);
-                        logger::info!("  ⚠ Failed to cancel stop-loss order: {}", err_msg);
+                        info!("  ⚠ Failed to cancel stop-loss order: {}", err_msg);
                         cancel_errors.push(err_msg);
                     }
                 }
@@ -908,12 +902,11 @@ impl Trader for AsterTrader {
         }
 
         if canceled_count == 0 && cancel_errors.is_empty() {
-            logger::info!("  ℹ {} no stop-loss orders to cancel", symbol);
+            info!("  ℹ {} no stop-loss orders to cancel", symbol);
         } else if canceled_count > 0 {
-            logger::info!(
+            info!(
                 "  ✓ Canceled {} stop-loss order(s) for {}",
-                canceled_count,
-                symbol
+                canceled_count, symbol
             );
         }
 
@@ -955,16 +948,14 @@ impl Trader for AsterTrader {
                 {
                     Ok(_) => {
                         canceled_count += 1;
-                        logger::info!(
+                        info!(
                             "  ✓ Canceled take-profit order (order ID: {}, type: {}, direction: {})",
-                            order_id,
-                            order_type,
-                            pos_side
+                            order_id, order_type, pos_side
                         );
                     }
                     Err(e) => {
                         let err_msg = format!("order ID {}: {}", order_id, e);
-                        logger::info!("  ⚠ Failed to cancel take-profit order: {}", err_msg);
+                        info!("  ⚠ Failed to cancel take-profit order: {}", err_msg);
                         cancel_errors.push(err_msg);
                     }
                 }
@@ -972,12 +963,11 @@ impl Trader for AsterTrader {
         }
 
         if canceled_count == 0 && cancel_errors.is_empty() {
-            logger::info!("  ℹ {} no take-profit orders to cancel", symbol);
+            info!("  ℹ {} no take-profit orders to cancel", symbol);
         } else if canceled_count > 0 {
-            logger::info!(
+            info!(
                 "  ✓ Canceled {} take-profit order(s) for {}",
-                canceled_count,
-                symbol
+                canceled_count, symbol
             );
         }
 
@@ -1027,27 +1017,24 @@ impl Trader for AsterTrader {
                 {
                     Ok(_) => {
                         canceled_count += 1;
-                        logger::info!(
+                        info!(
                             "  ✓ Canceled take-profit/stop-loss order for {} (order ID: {}, type: {})",
-                            symbol,
-                            order_id,
-                            order_type
+                            symbol, order_id, order_type
                         );
                     }
                     Err(e) => {
-                        logger::info!("  ⚠ Failed to cancel order {}: {}", order_id, e);
+                        info!("  ⚠ Failed to cancel order {}: {}", order_id, e);
                     }
                 }
             }
         }
 
         if canceled_count == 0 {
-            logger::info!("  ℹ {} no take-profit/stop-loss orders to cancel", symbol);
+            info!("  ℹ {} no take-profit/stop-loss orders to cancel", symbol);
         } else {
-            logger::info!(
+            info!(
                 "  ✓ Canceled {} take-profit/stop-loss order(s) for {}",
-                canceled_count,
-                symbol
+                canceled_count, symbol
             );
         }
         Ok(())

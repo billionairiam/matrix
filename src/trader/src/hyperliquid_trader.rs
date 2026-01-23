@@ -9,9 +9,9 @@ use hyperliquid_rust_sdk::{
     BaseUrl, ClientCancelRequest, ClientLimit, ClientOrder, ClientOrderRequest, ClientTrigger,
     ExchangeClient, InfoClient, Meta,
 };
-use logger::{info, warn};
 use serde_json::{Map, Value, json};
 use tokio::sync::RwLock;
+use tracing::{info, warn};
 
 use super::Trader;
 

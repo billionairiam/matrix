@@ -146,6 +146,7 @@ pub async fn hydrate_backtest_ai_config(state: &AppState, cfg: &mut BacktestConf
         state
             .store
             .ai_model()
+            .await
             .get(&cfg.user_id, &model_id_input)
             .await
             .context(format!("Failed to load AI model: {}", model_id_input))?
@@ -154,6 +155,7 @@ pub async fn hydrate_backtest_ai_config(state: &AppState, cfg: &mut BacktestConf
         let default_model = state
             .store
             .ai_model()
+            .await
             .get_default(&cfg.user_id)
             .await
             .context("No available AI model found")?;
@@ -799,7 +801,6 @@ pub async fn handle_backtest_trades(
     };
 
     // 2. Validate Run ID
-
     let run_id = match params.get("run_id") {
         Some(id) if !id.trim().is_empty() => id,
         _ => {

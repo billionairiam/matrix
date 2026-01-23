@@ -1,12 +1,8 @@
-use anyhow::{Context, Result};
-use sqlx::{
-    ConnectOptions, SqlitePool,
-    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
-};
 use std::str::FromStr;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
 
+use super::CryptoProvider;
 use crate::ai_model::AIModelStore;
 use crate::backtest::BacktestStore;
 use crate::decision::DecisionStore;
@@ -17,21 +13,29 @@ use crate::position::PositionStore;
 use crate::strategy::StrategyStore;
 use crate::trader::TraderStore;
 use crate::user::UserStore;
+use anyhow::{Context, Result};
+use sqlx::{
+    ConnectOptions, SqlitePool,
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
+};
+use tokio::sync::RwLock;
+use tracing::{info, warn};
 
-use logger; // As per hint
+struct NoOpCrypto;
+impl CryptoProvider for NoOpCrypto {
+    fn encrypt(&self, i: &str) -> String {
+        i.to_string()
+    }
+    fn decrypt(&self, i: &str) -> String {
+        i.to_string()
+    }
+}
 
-// Type alias for encryption/decryption closures
-// We use Arc to share the function across threads and stores
-pub type CryptoFunc = Arc<dyn Fn(&str) -> String + Send + Sync>;
-
-/// Store unified data storage interface
 #[derive(Clone)]
 pub struct Store {
-    pool: SqlitePool,
+    pub pool: SqlitePool,
 
-    // Encryption functions wrapped in RwLock to allow dynamic updates (SetCryptoFuncs)
-    encrypt_func: Arc<RwLock<Option<CryptoFunc>>>,
-    decrypt_func: Arc<RwLock<Option<CryptoFunc>>>,
+    crypto: Arc<RwLock<Arc<dyn CryptoProvider>>>,
 }
 
 impl Store {
@@ -41,23 +45,22 @@ impl Store {
         let options = SqliteConnectOptions::from_str(db_path)
             .context("Invalid database URL")?
             .create_if_missing(true)
-            .journal_mode(SqliteJournalMode::Delete) // Match "PRAGMA journal_mode=DELETE"
-            .synchronous(SqliteSynchronous::Full) // Match "PRAGMA synchronous=FULL"
-            .busy_timeout(Duration::from_millis(5000)) // Match "PRAGMA busy_timeout = 5000"
+            .journal_mode(SqliteJournalMode::Delete)
+            .synchronous(SqliteSynchronous::Full)
+            .busy_timeout(Duration::from_millis(5000))
             .foreign_keys(true)
-            .disable_statement_logging(); // Match "PRAGMA foreign_keys = ON"
+            .disable_statement_logging();
 
         let pool = SqlitePoolOptions::new()
-            .max_connections(1) // Match "db.SetMaxOpenConns(1)"
-            .min_connections(1) // Match "db.SetMaxIdleConns(1)" effectively
+            .max_connections(1)
+            .min_connections(1)
             .connect_with(options)
             .await
             .context("Failed to open database")?;
 
         let store = Self {
             pool,
-            encrypt_func: Arc::new(RwLock::new(None)),
-            decrypt_func: Arc::new(RwLock::new(None)),
+            crypto: Arc::new(RwLock::new(Arc::new(NoOpCrypto))),
         };
 
         // Initialize all table structures
@@ -72,7 +75,7 @@ impl Store {
             .await
             .context("Failed to initialize default data")?;
 
-        logger::info!("✅ Database enabled DELETE mode and FULL sync");
+        info!("✅ Database enabled DELETE mode and FULL sync");
         Ok(store)
     }
 
@@ -80,27 +83,15 @@ impl Store {
     pub fn new_from_pool(pool: SqlitePool) -> Self {
         Self {
             pool,
-            encrypt_func: Arc::new(RwLock::new(None)),
-            decrypt_func: Arc::new(RwLock::new(None)),
+            crypto: Arc::new(RwLock::new(Arc::new(NoOpCrypto))),
         }
     }
 
     /// SetCryptoFuncs sets encryption/decryption functions
-    pub fn set_crypto_funcs<E, D>(&self, encrypt: E, decrypt: D)
-    where
-        E: Fn(&str) -> String + Send + Sync + 'static,
-        D: Fn(&str) -> String + Send + Sync + 'static,
-    {
-        let mut enc_guard = self.encrypt_func.write().unwrap();
-        let mut dec_guard = self.decrypt_func.write().unwrap();
-
-        *enc_guard = Some(Arc::new(encrypt));
-        *dec_guard = Some(Arc::new(decrypt));
+    pub async fn set_provider(&self, provider: impl CryptoProvider) {
+        let mut guard = self.crypto.write().await;
+        *guard = Arc::new(provider);
     }
-
-    // ==========================================
-    // Initialization
-    // ==========================================
 
     async fn init_tables(&self) -> Result<()> {
         // Initialize in dependency order
@@ -109,14 +100,17 @@ impl Store {
             .await
             .context("Failed to initialize user tables")?;
         self.ai_model()
+            .await
             .init_tables()
             .await
             .context("Failed to initialize AI model tables")?;
         self.exchange()
+            .await
             .init_tables()
             .await
             .context("Failed to initialize exchange tables")?;
         self.trader()
+            .await
             .init_tables()
             .await
             .context("Failed to initialize trader tables")?;
@@ -148,84 +142,45 @@ impl Store {
     }
 
     async fn init_default_data(&self) -> Result<()> {
-        self.ai_model().init_default_data().await?;
-        self.exchange().init_default_data().await?;
+        self.ai_model().await.init_default_data().await?;
+        self.exchange().await.init_default_data().await?;
         self.strategy().init_default_data().await?;
 
         // Migrate old decision_account_snapshots data to new trader_equity_snapshots table
         match self.equity().migrate_from_decision().await {
             Ok(migrated) if migrated > 0 => {
-                logger::info!("✅ Migrated {} equity records to new table", migrated);
+                info!("✅ Migrated {} equity records to new table", migrated);
             }
             Ok(_) => {} // 0 records, do nothing
             Err(e) => {
-                logger::warn!("failed to migrate equity data: {:?}", e);
+                warn!("failed to migrate equity data: {:?}", e);
             }
         }
         Ok(())
     }
 
-    // ==========================================
-    // Sub-store Accessors
-    // In Rust, we create lightweight handles on demand rather than lazy-loading pointers.
-    // This avoids Mutex overhead for the Store struct itself.
-    // ==========================================
-
     pub fn user(&self) -> UserStore {
         UserStore::new(self.pool.clone())
     }
 
-    pub fn ai_model(&self) -> AIModelStore {
-        // We clone the Arc<CryptoFunc> inside the Option, which is cheap
-        let enc = self.encrypt_func.read().unwrap().clone();
-        let dec = self.decrypt_func.read().unwrap().clone();
-
-        // Note: AIModelStore constructor needs to be compatible with Option<Arc<dyn Fn...>>
-        // If your previous implementation used Box<dyn Fn>, you might need to adapt here
-        // to pass clones of the Arc instead.
-        // Assuming AIModelStore::new(pool, enc, dec) signature accepts closures or Options.
-        // We'll convert our Arc types to standard closures for the sub-store if needed,
-        // OR update sub-stores to accept Arc<dyn Fn>.
-        // Here we assume sub-stores are updated to accept the types we pass,
-        // or we wrap them.
-
-        // Adapting for generic closure acceptance:
-        let enc_cb = enc.map(|f| {
-            let f = f.clone();
-            Box::new(move |s: &str| f(s)) as Box<dyn Fn(&str) -> String + Send + Sync>
-        });
-        let dec_cb = dec.map(|f| {
-            let f = f.clone();
-            Box::new(move |s: &str| f(s)) as Box<dyn Fn(&str) -> String + Send + Sync>
-        });
-
-        AIModelStore::new(self.pool.clone(), enc_cb, dec_cb)
+    pub async fn ai_model(&self) -> AIModelStore {
+        let provider = self.crypto.read().await.clone();
+        AIModelStore {
+            pool: self.pool.clone(),
+            provider,
+        }
     }
 
-    pub fn exchange(&self) -> ExchangeStore {
-        let enc = self.encrypt_func.read().unwrap().clone();
-        let dec = self.decrypt_func.read().unwrap().clone();
+    pub async fn exchange(&self) -> ExchangeStore {
+        let provider = self.crypto.read().await.clone();
 
-        let enc_cb = enc.map(|f| {
-            let f = f.clone();
-            Box::new(move |s: &str| f(s)) as Box<dyn Fn(&str) -> String + Send + Sync>
-        });
-        let dec_cb = dec.map(|f| {
-            let f = f.clone();
-            Box::new(move |s: &str| f(s)) as Box<dyn Fn(&str) -> String + Send + Sync>
-        });
-
-        ExchangeStore::new(self.pool.clone(), enc_cb, dec_cb)
+        ExchangeStore::new(self.pool.clone(), provider)
     }
 
-    pub fn trader(&self) -> TraderStore {
-        let dec = self.decrypt_func.read().unwrap().clone();
-        let dec_cb = dec.map(|f| {
-            let f = f.clone();
-            Box::new(move |s: &str| f(s)) as Box<dyn Fn(&str) -> String + Send + Sync>
-        });
+    pub async fn trader(&self) -> TraderStore {
+        let provider = self.crypto.read().await.clone();
 
-        TraderStore::new(self.pool.clone(), dec_cb)
+        TraderStore::new(self.pool.clone(), provider)
     }
 
     pub fn decision(&self) -> DecisionStore {
@@ -252,10 +207,6 @@ impl Store {
         EquityStore::new(self.pool.clone())
     }
 
-    // ==========================================
-    // Utils
-    // ==========================================
-
     /// Close closes database connection
     pub async fn close(&self) {
         self.pool.close().await;
@@ -278,50 +229,9 @@ impl Store {
             .await
             .context("Failed to begin transaction")?;
 
-        // We can't easily pass 'tx' into sub-stores because sub-stores usually hold the Pool.
-        // In sqlx, to use a transaction with a sub-store query, the query needs to accept
-        // an Executor (pool or tx).
-        //
-        // Since the Go implementation passed `*sql.Tx` to the callback,
-        // here we pass the sqlx Transaction object.
-        // The callback is responsible for using it.
-
         match f(tx).await {
-            Ok(result) => {
-                // In sqlx, if the transaction is not committed, it rolls back on drop.
-                // But we can't commit a consumed tx easily inside the match arm if `f` consumes it.
-                //
-                // Correction: The idiomatic way in Rust is usually:
-                // let mut tx = pool.begin().await?;
-                // do_stuff(&mut tx).await?;
-                // tx.commit().await?;
-                //
-                // However, since `f` takes ownership of the Transaction to allow passing it around,
-                // `f` itself must likely handle the commit, OR `f` should take `&mut Transaction`.
-                //
-                // Given the Go signature `fn(tx *sql.Tx) error`, the caller does the logic,
-                // then `Store` commits.
-                //
-                // To support this in Rust, `f` should return the transaction if successful?
-                // Or `f` takes a mutable reference.
-                // Let's assume `f` takes `&mut Transaction` for broader compatibility.
-                Ok(result)
-            }
-            Err(e) => {
-                // Rollback happens automatically when `tx` (if not moved) is dropped,
-                // or we can explicitly rollback if we had access.
-                Err(e)
-            }
+            Ok(result) => Ok(result),
+            Err(e) => Err(e),
         }
-
-        // Note: The specific implementation of `transaction` helper in Rust usually differs
-        // from Go because of ownership. A common pattern is:
-        //
-        // pub async fn run_tx<T, F>(&self, f: F) -> Result<T> ...
-        //
-        // But simply exposing `pool.begin()` to the caller is often preferred in Rust
-        // rather than a wrapper closure, unless retries are involved.
-        // For this port, we will stick to exposing the pool, or providing a basic wrapper
-        // where the user must handle the tx object.
     }
 }

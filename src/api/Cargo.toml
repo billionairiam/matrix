@@ -9,7 +9,6 @@ backtest = { path = "../backtest" }
 config = { path = "../config" }
 crypto = { path = "../crypto" }
 decision = { path = "../decision" }
-logger = {  path = "../logger" } 
 manager = { path = "../manager" }
 store = { path = "../store" }
 trader = { path = "../trader" }

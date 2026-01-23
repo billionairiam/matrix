@@ -4,10 +4,6 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 
-// ==========================================
-// Struct Definitions
-// ==========================================
-
 /// Strategy strategy configuration
 #[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
 pub struct Strategy {
@@ -171,10 +167,6 @@ fn default_rsi_periods() -> Vec<i32> {
 fn default_atr_periods() -> Vec<i32> {
     vec![14]
 }
-
-// ==========================================
-// StrategyStore
-// ==========================================
 
 #[derive(Clone)]
 pub struct StrategyStore {
@@ -506,10 +498,6 @@ impl StrategyStore {
         self.create(&new_strategy).await
     }
 }
-
-// ==========================================
-// Struct Methods Helpers
-// ==========================================
 
 impl Strategy {
     pub fn parse_config(&self) -> Result<StrategyConfig> {

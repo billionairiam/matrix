@@ -1,14 +1,12 @@
+use std::sync::Arc;
+
+use super::CryptoProvider;
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, sqlite::SqlitePool};
-use std::sync::Arc;
+use tracing::{info, instrument, warn};
 
-use super::CryptoFunc;
-// 假设 logger crate 导出了标准的日志宏，或者我们需要像这样引用
-use logger::{info, warn};
-
-// AIModel 结构体
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow, Clone)]
 pub struct AIModel {
     pub id: String,
@@ -26,25 +24,15 @@ pub struct AIModel {
     pub updated_at: DateTime<Utc>,
 }
 
-// AIModelStore 结构体
 #[derive(Clone)]
 pub struct AIModelStore {
-    db: SqlitePool,
-    encrypt_func: Option<Arc<CryptoFunc>>,
-    decrypt_func: Option<Arc<CryptoFunc>>,
+    pub pool: SqlitePool,
+    pub provider: Arc<dyn CryptoProvider>,
 }
 
 impl AIModelStore {
-    pub fn new(
-        db: SqlitePool,
-        encrypt_func: Option<CryptoFunc>,
-        decrypt_func: Option<CryptoFunc>,
-    ) -> Self {
-        Self {
-            db,
-            encrypt_func: encrypt_func.map(Arc::new),
-            decrypt_func: decrypt_func.map(Arc::new),
-        }
+    pub fn new(pool: SqlitePool, provider: Arc<dyn CryptoProvider>) -> Self {
+        Self { pool, provider }
     }
 
     pub async fn init_tables(&self) -> Result<()> {
@@ -64,7 +52,7 @@ impl AIModelStore {
             )
             "#,
         )
-        .execute(&self.db)
+        .execute(&self.pool)
         .await?;
 
         // Trigger
@@ -77,40 +65,30 @@ impl AIModelStore {
             END
             "#,
         )
-        .execute(&self.db)
+        .execute(&self.pool)
         .await?;
 
         // Backward compatibility: add potentially missing columns
-        // sqlx 执行多条语句时通常建议分开，或者容忍错误
         let _ = sqlx::query("ALTER TABLE ai_models ADD COLUMN custom_api_url TEXT DEFAULT ''")
-            .execute(&self.db)
+            .execute(&self.pool)
             .await;
         let _ = sqlx::query("ALTER TABLE ai_models ADD COLUMN custom_model_name TEXT DEFAULT ''")
-            .execute(&self.db)
+            .execute(&self.pool)
             .await;
 
         Ok(())
     }
 
     pub async fn init_default_data(&self) -> Result<()> {
-        // No longer pre-populate AI models
         Ok(())
     }
 
     fn encrypt(&self, plaintext: &str) -> String {
-        if let Some(func) = &self.encrypt_func {
-            func(plaintext)
-        } else {
-            plaintext.to_string()
-        }
+        self.provider.encrypt(plaintext)
     }
 
     fn decrypt(&self, encrypted: &str) -> String {
-        if let Some(func) = &self.decrypt_func {
-            func(encrypted)
-        } else {
-            encrypted.to_string()
-        }
+        self.provider.decrypt(encrypted)
     }
 
     // List retrieves user's AI model list
@@ -125,14 +103,11 @@ impl AIModelStore {
             "#,
         )
         .bind(user_id)
-        .fetch_all(&self.db)
+        .fetch_all(&self.pool)
         .await?;
 
         let mut models = Vec::new();
         for row in rows {
-            // 注意：Go代码中手动解析了时间字符串，但 sqlx 这里通常能直接映射到 NaiveDateTime。
-            // 如果数据库里存的是纯字符串，sqlx 也支持自动转换，前提是格式符合 ISO8601 或类似标准。
-            // 这里我们手动映射以匹配 Go 的逻辑。
             let mut model = AIModel {
                 id: row.try_get("id")?,
                 user_id: row.try_get("user_id")?,
@@ -182,7 +157,7 @@ impl AIModelStore {
             )
             .bind(uid)
             .bind(model_id)
-            .fetch_optional(&self.db)
+            .fetch_optional(&self.pool)
             .await?;
 
             if let Some(mut model) = result {
@@ -191,7 +166,7 @@ impl AIModelStore {
             }
         }
 
-        Err(anyhow!("sql: no rows in result set")) // 模拟 sql.ErrNoRows
+        Err(anyhow!("sql: no rows in result set"))
     }
 
     // GetDefault retrieves the default enabled AI model
@@ -206,7 +181,6 @@ impl AIModelStore {
             return Ok(model);
         }
 
-        // 如果用户 ID 不是 default，尝试查找 default
         if uid != "default" {
             return self.first_enabled("default").await;
         }
@@ -228,7 +202,7 @@ impl AIModelStore {
             "#,
         )
         .bind(user_id)
-        .fetch_optional(&self.db)
+        .fetch_optional(&self.pool)
         .await?;
 
         match result {
@@ -241,6 +215,7 @@ impl AIModelStore {
     }
 
     // Update updates AI model, creates if not exists
+    #[instrument(skip(self, api_key))]
     pub async fn update(
         &self,
         user_id: &str,
@@ -255,7 +230,7 @@ impl AIModelStore {
             sqlx::query_scalar("SELECT id FROM ai_models WHERE user_id = ? AND id = ? LIMIT 1")
                 .bind(user_id)
                 .bind(id)
-                .fetch_optional(&self.db)
+                .fetch_optional(&self.pool)
                 .await?;
 
         if let Some(eid) = existing_id {
@@ -273,7 +248,7 @@ impl AIModelStore {
             .bind(custom_model_name)
             .bind(eid)
             .bind(user_id)
-            .execute(&self.db)
+            .execute(&self.pool)
             .await?;
             return Ok(());
         }
@@ -285,7 +260,7 @@ impl AIModelStore {
         )
         .bind(user_id)
         .bind(provider_key)
-        .fetch_optional(&self.db)
+        .fetch_optional(&self.pool)
         .await?;
 
         if let Some(lid) = legacy_id {
@@ -307,7 +282,7 @@ impl AIModelStore {
             .bind(custom_model_name)
             .bind(lid)
             .bind(user_id)
-            .execute(&self.db)
+            .execute(&self.pool)
             .await?;
             return Ok(());
         }
@@ -329,7 +304,7 @@ impl AIModelStore {
         let db_name: Option<String> =
             sqlx::query_scalar("SELECT name FROM ai_models WHERE provider = ? LIMIT 1")
                 .bind(&final_provider)
-                .fetch_optional(&self.db)
+                .fetch_optional(&self.pool)
                 .await?;
 
         let name = db_name.unwrap_or_else(|| {
@@ -367,7 +342,7 @@ impl AIModelStore {
         .bind(encrypted_api_key)
         .bind(custom_api_url)
         .bind(custom_model_name)
-        .execute(&self.db)
+        .execute(&self.pool)
         .await?;
 
         Ok(())
@@ -397,7 +372,7 @@ impl AIModelStore {
         .bind(enabled)
         .bind(api_key)
         .bind(custom_api_url)
-        .execute(&self.db)
+        .execute(&self.pool)
         .await?;
 
         Ok(())

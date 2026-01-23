@@ -1,6 +1,3 @@
-use chrono::{DateTime, Utc};
-use tokio::fs;
-
 use crate::persistence_db::get_db;
 use crate::persistence_db::using_db;
 use crate::registry::load_run_index;
@@ -9,8 +6,9 @@ use crate::storage::run_dir;
 use crate::storage_db_impl::delete_run_db;
 use crate::storage_db_impl::query_retention_candidates;
 use crate::types::RunState;
-
-use logger::info;
+use chrono::{DateTime, Utc};
+use tokio::fs;
+use tracing::info;
 
 pub const MAX_COMPLETED_RUNS: usize = 100;
 

@@ -12,5 +12,6 @@ anyhow.workspace = true
 tokio.workspace = true
 rand.workspace  = true
 data-encoding.workspace = true
+tracing.workspace = true
 
 logger = { path = "../logger" }

@@ -1,19 +1,13 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use anyhow::{Result, anyhow};
-use chrono::SecondsFormat;
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value, json};
-use tokio::sync::{Notify, RwLock};
-use tokio::time::interval;
-
 use super::Trader;
 use super::aster_trader::AsterTrader;
 use super::binance_futures::FuturesTrader;
 use super::hyperliquid_trader::HyperliquidTrader;
-
+use anyhow::{Result, anyhow};
+use chrono::SecondsFormat;
+use chrono::{DateTime, Utc};
 use decision::engine::Context;
 use decision::engine::Decision;
 use decision::engine::PositionInfo;
@@ -21,19 +15,23 @@ use decision::engine::TradingStats;
 use decision::engine::get_full_decision_with_strategy;
 use decision::engine::{AccountInfo, RecentOrder};
 use decision::strategy_engine::StrategyEngine;
-use logger::{error, info, warn};
 use market::data::get;
 use mcp::client::Client;
 use mcp::custom_client::CustomProvider;
 use mcp::deepseek_client::DeepseekProvider;
 use mcp::qwen_client::QwenProvider;
 use pool::coin_pool::CoinPoolClient;
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value, json};
 use store::decision::DecisionAction;
 use store::decision::DecisionRecord;
 use store::equity::EquitySnapshot;
 use store::order::TraderOrder;
 use store::store::Store;
 use store::strategy::StrategyConfig;
+use tokio::sync::{Notify, RwLock};
+use tokio::time::interval;
+use tracing::{error, info, warn};
 
 #[derive(Debug, Serialize)]
 pub struct PositionResponse {

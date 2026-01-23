@@ -19,10 +19,10 @@ tokio-util.workspace = true
 walkdir.workspace = true
 uuid.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
 
 mcp = { path = "../mcp" }
 market = { path = "../market" }
 decision = { path = "../decision" }
-logger = { path = "../logger" }
 store = { path = "../store" }
 pool = { path = "../pool" }

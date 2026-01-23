@@ -34,8 +34,7 @@ use chrono::Utc;
 use crypto::crypto::EncryptedPayload;
 use futures::future::select_ok;
 use if_addrs::get_if_addrs;
-use logger::warn;
-use logger::{error, info};
+use tracing::{error, info, warn};
 use manager::trader_manager::TraderManager;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -740,7 +739,7 @@ pub async fn get_trader_from_query(
         return Err((StatusCode::BAD_REQUEST, "No available traders".to_string()));
     }
 
-    match state.store.trader().list(user_id).await {
+    match state.store.trader().await.list(user_id).await {
         Ok(user_traders) if !user_traders.is_empty() => {
             return Ok(user_traders[0].id.clone());
         }
@@ -1340,7 +1339,7 @@ async fn handle_trader_list(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
 ) -> impl IntoResponse {
-    let db_traders = match state.store.trader().list(&user.user_id).await {
+    let db_traders = match state.store.trader().await.list(&user.user_id).await {
         Ok(t) => t,
         Err(e) => {
             return (
@@ -1394,6 +1393,7 @@ pub async fn handle_get_trader_config(
     let full_cfg = match state
         .store
         .trader()
+        .await
         .get_full_config(&user.user_id, &trader_id)
         .await
     {
@@ -1511,7 +1511,7 @@ async fn handle_create_trader(
     let mut actual_balance = req.initial_balance;
 
     // 6.1 Get Exchange Configs
-    match state.store.exchange().list(&user.user_id).await {
+    match state.store.exchange().await.list(&user.user_id).await {
         Err(e) => warn!(
             "⚠️ Failed to get exchange config, using user input: {:?}",
             e
@@ -1599,7 +1599,7 @@ async fn handle_create_trader(
     };
 
     // 8. Save to DB
-    if let Err(e) = state.store.trader().create(&trader_record).await {
+    if let Err(e) = state.store.trader().await.create(&trader_record).await {
         error!("❌ Failed to create trader: {:?}", e);
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1682,7 +1682,7 @@ pub async fn handle_update_trader(
 
     // 2. Check if trader exists and belongs to current user
     // Corresponding Go: s.store.Trader().List(userID)
-    let traders = match state.store.trader().list(&user.user_id).await {
+    let traders = match state.store.trader().await.list(&user.user_id).await {
         Ok(t) => t,
         Err(e) => {
             return (
@@ -1777,7 +1777,7 @@ pub async fn handle_update_trader(
     };
 
     // 5. Update Database
-    if let Err(e) = state.store.trader().update(&trader_record).await {
+    if let Err(e) = state.store.trader().await.update(&trader_record).await {
         error!("Failed to update trader: {:?}", e);
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1822,7 +1822,7 @@ pub async fn handle_delete_trader(
     // Extract trader_id from URL path
     Path(trader_id): Path<String>,
 ) -> impl IntoResponse {
-    if let Err(e) = state.store.trader().delete(&user.user_id, &trader_id).await {
+    if let Err(e) = state.store.trader().await.delete(&user.user_id, &trader_id).await {
         error!("Failed to delete trader: {:?}", e);
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1871,6 +1871,7 @@ pub async fn handle_start_trader(
     let full_config_result = state
         .store
         .trader()
+        .await
         .get_full_config(&user.user_id, &trader_id)
         .await;
 
@@ -1999,6 +2000,7 @@ pub async fn handle_start_trader(
     if let Err(e) = state
         .store
         .trader()
+        .await
         .update_status(&user.user_id, &trader_id, true)
         .await
     {
@@ -2021,6 +2023,7 @@ pub async fn handle_stop_trader(
     if let Err(_) = state
         .store
         .trader()
+        .await
         .get_full_config(&user.user_id, &trader_id)
         .await
     {
@@ -2069,6 +2072,7 @@ pub async fn handle_stop_trader(
     if let Err(e) = state
         .store
         .trader()
+        .await
         .update_status(&user.user_id, &trader_id, false)
         .await
     {
@@ -2091,6 +2095,7 @@ pub async fn handle_update_trader_prompt(
     if let Err(e) = state
         .store
         .trader()
+        .await
         .update_custom_prompt(
             &user.user_id,
             &trader_id,
@@ -2148,6 +2153,7 @@ pub async fn handle_sync_balance(
     let full_config = match state
         .store
         .trader()
+        .await
         .get_full_config(&user.user_id, &trader_id)
         .await
     {
@@ -2254,6 +2260,7 @@ pub async fn handle_sync_balance(
     if let Err(e) = state
         .store
         .trader()
+        .await
         .update_initial_balance(&user.user_id, &trader_id, actual_balance)
         .await
     {
@@ -2328,6 +2335,7 @@ pub async fn handle_close_position(
     let full_config = match state
         .store
         .trader()
+        .await
         .get_full_config(&user.user_id, &trader_id)
         .await
     {
@@ -2423,7 +2431,7 @@ pub async fn handle_get_model_configs(
     info!("🔍 Querying AI model configs for user {}", user.user_id);
 
     // 1. Get models from database
-    let models = match state.store.ai_model().list(&user.user_id).await {
+    let models = match state.store.ai_model().await.list(&user.user_id).await {
         Ok(m) => m,
         Err(e) => {
             error!("❌ Failed to get AI model configs: {:?}", e);
@@ -2537,6 +2545,7 @@ pub async fn handle_update_model_configs(
         if let Err(e) = state
             .store
             .ai_model()
+            .await
             .update(
                 &user.user_id,
                 &model_id,
@@ -2584,7 +2593,7 @@ pub async fn handle_get_exchange_configs(
     info!("🔍 Querying exchange configs for user {}", user.user_id);
 
     // 1. Get exchanges from database
-    let exchanges = match state.store.exchange().list(&user.user_id).await {
+    let exchanges = match state.store.exchange().await.list(&user.user_id).await {
         Ok(exs) => exs,
         Err(e) => {
             error!("❌ Failed to get exchange configs: {:?}", e);
@@ -2699,6 +2708,7 @@ pub async fn handle_update_exchange_configs(
         let update_result = state
             .store
             .exchange()
+            .await
             .update(
                 user_id,
                 &exchange_id,

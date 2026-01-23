@@ -10,5 +10,7 @@ pub mod strategy;
 pub mod trader;
 pub mod user;
 
-// Type alias for encryption/decryption closures
-type CryptoFunc = Box<dyn Fn(&str) -> String + Send + Sync>;
+pub trait CryptoProvider: Send + Sync + 'static {
+    fn encrypt(&self, input: &str) -> String;
+    fn decrypt(&self, input: &str) -> String;
+}

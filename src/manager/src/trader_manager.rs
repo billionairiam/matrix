@@ -1,16 +1,16 @@
-use anyhow::{Result, anyhow};
-use futures::future::join_all;
-use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::RwLock;
 
-use logger::info;
+use anyhow::{Result, anyhow};
+use futures::future::join_all;
+use serde_json::{Map, Value, json};
 use store::ai_model::AIModel;
 use store::exchange::Exchange;
 use store::store::Store;
 use store::trader::Trader;
+use tokio::sync::RwLock;
+use tracing::info;
 use trader::auto_trader::AutoTrader;
 use trader::auto_trader::AutoTraderConfig;
 
@@ -87,7 +87,7 @@ impl TraderManager {
     }
 
     pub async fn auto_start_running_traders(&self, st: &Store) {
-        let trader_list = match st.trader().list_all().await {
+        let trader_list = match st.trader().await.list_all().await {
             Ok(list) => list,
             Err(e) => {
                 info!("{}", &format!("⚠️ Failed to get trader list: {:?}", e));
@@ -389,10 +389,7 @@ impl TraderManager {
         st: &Store,
         user_id: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // 获取锁 (Go中使用 defer Unlock，Rust中使用 RAII，但由于下面有 await 操作，需要注意锁的粒度)
-        // 为了避免长时间持有写锁，我们先查询数据，再获取写锁进行插入
-
-        let traders_cfg = st.trader().list(user_id).await?;
+        let traders_cfg = st.trader().await.list(user_id).await?;
         info!(
             "{}",
             &format!(
@@ -402,8 +399,8 @@ impl TraderManager {
             )
         );
 
-        let ai_models = st.ai_model().list(user_id).await?;
-        let exchanges = st.exchange().list(user_id).await?;
+        let ai_models = st.ai_model().await.list(user_id).await?;
+        let exchanges = st.exchange().await.list(user_id).await?;
 
         // 准备好所有需要添加的 trader，最后统一插入
         let mut traders_to_add = Vec::new();
@@ -520,7 +517,7 @@ impl TraderManager {
 
         let mut all_traders_cfg = Vec::new();
         for user_id in &user_ids {
-            match st.trader().list(user_id).await {
+            match st.trader().await.list(user_id).await {
                 Ok(traders) => {
                     info!(
                         "{}",
@@ -556,11 +553,13 @@ impl TraderManager {
             // 获取该用户的配置
             let ai_models = st
                 .ai_model()
+                .await
                 .list(&trader_cfg.user_id)
                 .await
                 .unwrap_or_default();
             let exchanges = st
                 .exchange()
+                .await
                 .list(&trader_cfg.user_id)
                 .await
                 .unwrap_or_default();

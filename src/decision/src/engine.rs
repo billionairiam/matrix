@@ -17,7 +17,7 @@ use market::data::get_with_timeframes;
 use market::data::{get, format_data};
 use mcp::{client::Client};
 use pool::coin_pool::CoinPoolClient;
-use logger::{info};
+use tracing::info;
 
 static RE_JSON_FENCE: OnceLock<Regex> = OnceLock::new();
 static RE_JSON_ARRAY: OnceLock<Regex> = OnceLock::new();

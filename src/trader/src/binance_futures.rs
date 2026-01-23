@@ -9,12 +9,12 @@ use binance::futures::general::FuturesGeneral;
 use binance::futures::market::FuturesMarket;
 use binance::futures::model::Filters;
 use chrono::prelude::*;
-use logger::{error, info, warn};
 use rand::Rng;
 use serde_json::{Map, Value, json};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
+use tracing::{error, info, warn};
 
 use super::Trader;
 

@@ -1,7 +1,3 @@
-use anyhow::{Result, anyhow};
-use tokio::sync::RwLock;
-use tokio_util::sync::CancellationToken;
-
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -30,10 +26,12 @@ use crate::types::RunMetadata;
 use crate::types::RunState;
 use crate::types::StatusPayload;
 use crate::types::TradeEvent;
-
-use logger::info;
+use anyhow::{Result, anyhow};
 use mcp::Provider;
 use store::decision::DecisionRecord;
+use tokio::sync::RwLock;
+use tokio_util::sync::CancellationToken;
+use tracing::info;
 
 pub type AIConfigResolver = Box<dyn Fn(&mut BacktestConfig) -> Result<()> + Send + Sync>;
 

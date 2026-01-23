@@ -5,10 +5,6 @@ use anyhow::{Context, Result};
 use rand::RngCore;
 use data_encoding::BASE32;
 
-// ==========================================
-// Struct Definitions
-// ==========================================
-
 /// User user entity
 #[derive(Debug, Serialize, Deserialize, Clone, FromRow)]
 pub struct User {
@@ -35,10 +31,6 @@ pub struct User {
 pub struct UserStore {
     db: SqlitePool,
 }
-
-// ==========================================
-// Implementation
-// ==========================================
 
 impl UserStore {
     pub fn new(db: SqlitePool) -> Self {

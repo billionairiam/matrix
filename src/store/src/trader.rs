@@ -4,14 +4,10 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
 use std::sync::Arc;
 
-use super::CryptoFunc;
+use super::CryptoProvider;
 use super::ai_model::AIModel;
 use super::exchange::Exchange;
 use super::strategy::Strategy;
-
-// ==========================================
-// Struct Definitions
-// ==========================================
 
 /// Trader trader configuration
 #[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
@@ -22,7 +18,7 @@ pub struct Trader {
     pub ai_model_id: String,
     pub exchange_id: String,
     #[serde(default)]
-    pub strategy_id: String, // Associated strategy ID
+    pub strategy_id: String,
     pub initial_balance: f64,
     pub scan_interval_minutes: i32,
     pub is_running: bool,
@@ -73,18 +69,14 @@ pub struct TraderFullConfig {
 #[derive(Clone)]
 pub struct TraderStore {
     db: SqlitePool,
-    decrypt_func: Option<Arc<CryptoFunc>>,
+    pub crypto: Arc<dyn CryptoProvider>,
 }
 
-// ==========================================
-// Implementation
-// ==========================================
-
 impl TraderStore {
-    pub fn new(db: SqlitePool, decrypt_func: Option<CryptoFunc>) -> Self {
+    pub fn new(db: SqlitePool, provider: Arc<dyn CryptoProvider>) -> Self {
         Self {
             db,
-            decrypt_func: decrypt_func.map(Arc::new),
+            crypto: provider,
         }
     }
 
@@ -159,11 +151,7 @@ impl TraderStore {
     }
 
     fn decrypt(&self, encrypted: &str) -> String {
-        if let Some(func) = &self.decrypt_func {
-            func(encrypted)
-        } else {
-            encrypted.to_string()
-        }
+        self.crypto.decrypt(encrypted)
     }
 
     /// Creates trader

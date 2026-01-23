@@ -1,9 +1,3 @@
-use anyhow::{Result, anyhow};
-use chrono::{DateTime, TimeDelta, TimeZone, Utc};
-use thiserror::Error;
-use tokio::sync::{Mutex, Notify, RwLock, oneshot};
-use tokio::time::{MissedTickBehavior, interval, sleep};
-
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -33,7 +27,8 @@ use crate::types::RunState;
 use crate::types::RunSummary;
 use crate::types::StatusPayload;
 use crate::types::TradeEvent;
-
+use anyhow::{Result, anyhow};
+use chrono::{DateTime, TimeDelta, TimeZone, Utc};
 use decision::engine::AccountInfo;
 use decision::engine::CandidateCoin;
 use decision::engine::Context;
@@ -41,7 +36,6 @@ use decision::engine::Decision;
 use decision::engine::FullDecision;
 use decision::engine::PositionInfo;
 use decision::engine::get_full_decision_with_custom_prompt;
-use logger::info;
 use market::types::Data;
 use mcp::Provider;
 use mcp::client::Client;
@@ -50,6 +44,10 @@ use store::decision::AccountSnapshot;
 use store::decision::DecisionAction;
 use store::decision::DecisionRecord;
 use store::decision::PositionSnapshot;
+use thiserror::Error;
+use tokio::sync::{Mutex, Notify, RwLock, oneshot};
+use tokio::time::{MissedTickBehavior, interval, sleep};
+use tracing::info;
 
 const METRICS_WRITE_INTERVAL: TimeDelta = TimeDelta::try_seconds(5).unwrap();
 const AI_DECISION_MAX_RETRIES: usize = 3;
