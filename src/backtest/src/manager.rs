@@ -37,7 +37,7 @@ pub type AIConfigResolver = Box<dyn Fn(&mut BacktestConfig) -> Result<()> + Send
 
 pub struct Manager {
     state: RwLock<ManagerState>,
-    mcp_client: Arc<dyn Provider>,
+    mcp_client: Option<Arc<dyn Provider>>,
     ai_resolver: RwLock<Option<AIConfigResolver>>,
 }
 
@@ -48,7 +48,7 @@ struct ManagerState {
 }
 
 impl Manager {
-    pub fn new(default_client: Arc<dyn Provider>) -> Arc<Self> {
+    pub fn new(default_client: Option<Arc<dyn Provider>>) -> Arc<Self> {
         Arc::new(Self {
             state: RwLock::new(ManagerState {
                 runners: HashMap::new(),

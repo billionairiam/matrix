@@ -384,11 +384,7 @@ impl TraderManager {
     }
 
     // 加载指定用户的 Traders
-    pub async fn load_user_traders_from_store(
-        &self,
-        st: &Store,
-        user_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn load_user_traders_from_store(&self, st: &Store, user_id: &str) -> Result<()> {
         let traders_cfg = st.trader().await.list(user_id).await?;
         info!(
             "{}",
@@ -502,10 +498,7 @@ impl TraderManager {
     }
 
     // 加载所有用户的 Traders
-    pub async fn load_traders_from_store(
-        &self,
-        st: &Store,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn load_traders_from_store(&self, st: &Store) -> Result<()> {
         let user_ids = st.user().get_all_ids().await?;
         info!(
             "{}",
@@ -542,10 +535,7 @@ impl TraderManager {
             )
         );
 
-        // 这里为了简化，我们逐个处理。如果性能是瓶颈，可以预加载所有配置。
-        // 但由于涉及到不同用户的不同 AI/Exchange 配置，逐个处理逻辑更清晰。
         for trader_cfg in all_traders_cfg {
-            // 再次检查 (在 add_trader_from_store 内部也会检查，但这里可以提前跳过)
             if self.traders.read().await.contains_key(&trader_cfg.id) {
                 continue;
             }
@@ -658,11 +648,11 @@ impl TraderManager {
         ai_model_cfg: &AIModel,
         exchange_cfg: &Exchange,
         st: &Store,
-    ) -> Result<(), String> {
+    ) -> Result<()> {
         {
             let map = self.traders.read().await;
             if map.contains_key(&trader_cfg.id) {
-                return Err(format!("trader ID '{}' already exists", trader_cfg.id));
+                return Err(anyhow!("trader ID '{}' already exists", trader_cfg.id));
             }
         }
 
@@ -672,16 +662,19 @@ impl TraderManager {
                 .get(&trader_cfg.user_id, &trader_cfg.strategy_id)
                 .await
                 .map_err(|e| {
-                    format!(
+                    anyhow!(
                         "failed to load strategy {} for trader {}: {:?}",
-                        trader_cfg.strategy_id, trader_cfg.name, e
+                        trader_cfg.strategy_id,
+                        trader_cfg.name,
+                        e
                     )
                 })?;
 
             let config = strategy.parse_config().map_err(|e| {
-                format!(
+                anyhow!(
                     "failed to parse strategy config for trader {}: {:?}",
-                    trader_cfg.name, e
+                    trader_cfg.name,
+                    e
                 )
             })?;
 
@@ -694,7 +687,7 @@ impl TraderManager {
             );
             Some(config)
         } else {
-            return Err(format!(
+            return Err(anyhow!(
                 "trader {} has no strategy configured",
                 trader_cfg.name
             ));
@@ -751,15 +744,13 @@ impl TraderManager {
             config.deepseek_key = ai_model_cfg.api_key.clone();
         }
 
-        // 创建 Trader 实例
-        // 注意：这里假设 NewAutoTrader 需要 Arc<Store>，如果只需要引用，请调整
         let at = AutoTrader::new(
             config,
             Arc::new(Some(st.clone())),
             trader_cfg.user_id.clone(),
         )
         .await
-        .map_err(|e| format!("failed to create trader: {:?}", e))?;
+        .map_err(|e| anyhow!("failed to create trader: {:?}", e))?;
 
         // 设置自定义 Prompt
         if !trader_cfg.custom_prompt.is_empty() {

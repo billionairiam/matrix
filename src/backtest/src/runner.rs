@@ -88,7 +88,7 @@ pub struct Runner {
     pub feed: Arc<DataFeed>,
     pub decision_log_dir: PathBuf,
     pub cache_path: PathBuf,
-    pub mcp_client: Arc<Client>,
+    pub mcp_client: Option<Arc<Client>>,
     pub oi_client: Arc<CoinPoolClient>,
     pub ai_cache: Option<Arc<AICache>>,
     pub account: Arc<RwLock<BacktestAccount>>,
@@ -106,11 +106,14 @@ pub struct Runner {
 }
 
 impl Runner {
-    pub async fn new(cfg: BacktestConfig, mcp_client: Arc<dyn Provider>) -> Result<Arc<Self>> {
+    pub async fn new(
+        cfg: BacktestConfig,
+        mcp_client: Option<Arc<dyn Provider>>,
+    ) -> Result<Arc<Self>> {
         ensure_run_dir(&cfg.run_id).await?;
 
         let coin_pool = CoinPoolClient::new();
-        let client = configure_mcp_client(&cfg, mcp_client)?;
+        let client = configure_mcp_client(&cfg, mcp_client).map(Arc::new);
 
         let feed = DataFeed::new(cfg.clone()).await?;
 
@@ -151,7 +154,7 @@ impl Runner {
             feed: feed.into(),
             decision_log_dir: d_log_dir,
             cache_path: cache_path.into(),
-            mcp_client: client.into(),
+            mcp_client: client,
             ai_cache: Some(Arc::new(ai_cache)),
             account: RwLock::new(account).into(),
             status: RwLock::new(RunState::Created),
@@ -843,11 +846,16 @@ impl Runner {
     }
 
     async fn invoke_ai_with_retry(&self, ctx: &mut Context) -> Result<FullDecision> {
+        let client = self
+            .mcp_client
+            .as_ref()
+            .ok_or_else(|| anyhow!("mcp_client is not configured"))?;
+
         let mut last_err = anyhow!("unknown");
         for i in 0..AI_DECISION_MAX_RETRIES {
             match get_full_decision_with_custom_prompt(
                 ctx,
-                &self.mcp_client,
+                client.as_ref(),
                 &self.cfg.custom_prompt,
                 self.cfg.override_base_prompt,
                 &self.cfg.prompt_template,

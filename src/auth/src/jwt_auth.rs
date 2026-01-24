@@ -42,8 +42,8 @@ fn get_blacklist() -> &'static RwLock<HashMap<String, i64>> {
 }
 
 // set_jwt_secret sets the JWT secret key
-fn set_jwt_secret(secret: String) {
-    let _ = JWT_SECRET.set(secret);
+pub fn set_jwt_secret(secret: &str) {
+    let _ = JWT_SECRET.set(secret.to_string());
 }
 
 fn get_jwt_secret() -> &'static [u8] {

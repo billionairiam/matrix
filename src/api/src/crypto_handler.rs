@@ -14,12 +14,12 @@ use crypto::crypto::{CryptoService, EncryptedPayload};
 pub struct CryptoHandler {
     // In Rust, services are often wrapped in Arc, but here we will wrap
     // the whole Handler in Arc when passing to the Router.
-    pub crypto_service: CryptoService,
+    pub crypto_service: Arc<CryptoService>,
 }
 
 impl CryptoHandler {
     /// Creates encryption handler
-    pub fn new(crypto_service: CryptoService) -> Self {
+    pub fn new(crypto_service: Arc<CryptoService>) -> Self {
         Self { crypto_service }
     }
 

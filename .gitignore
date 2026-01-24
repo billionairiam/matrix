@@ -1,1 +1,5 @@
 /target
+.env
+/logs
+*.db
+*.log
