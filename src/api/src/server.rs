@@ -269,17 +269,17 @@ pub struct Server {
 
 impl Server {
     pub fn new(
-        trader_manager: TraderManager,
-        store: Store,
-        crypto_handler: CryptoHandler,
+        trader_manager: Arc<TraderManager>,
+        store: Arc<Store>,
+        crypto_handler: Arc<CryptoHandler>,
         backtest_manager: Option<Arc<Manager>>,
         port: u16,
     ) -> Self {
         let state = AppState {
-            trader_manager: Arc::new(trader_manager),
-            store: Arc::new(store),
-            crypto_handler: Arc::new(crypto_handler),
-            backtest_manager: backtest_manager,
+            trader_manager,
+            store,
+            crypto_handler,
+            backtest_manager,
         };
 
         Self { port, state }
@@ -300,10 +300,10 @@ impl Server {
         let app = self.setup_routes().layer(cors);
 
         let addr = SocketAddr::from(([0, 0, 0, 0], self.port));
-        println!("Server listening on {}", addr);
 
         let listener = tokio::net::TcpListener::bind(addr).await?;
         axum::serve(listener, app).await?;
+        info!("Server listening on {}", addr);
 
         Ok(())
     }
@@ -323,7 +323,7 @@ impl Server {
             .route("/crypto/decrypt", post(handle_crypto_decrypt))
             // System prompt template management
             .route("/prompt-templates", get(handle_get_prompt_templates))
-            .route("/prompt-templates/:name", get(handle_get_prompt_template))
+            .route("/prompt-templates/{name}", get(handle_get_prompt_template))
             // Public competition data
             .route("/traders", get(handle_public_trader_list))
             .route("/competition", get(handle_public_competition))
@@ -331,7 +331,7 @@ impl Server {
             .route("/equity-history", get(handle_equity_history))
             .route("/equity-history-batch", post(handle_equity_history_batch))
             .route(
-                "/traders/:id/public-config",
+                "/traders/{id}/public-config",
                 get(handle_get_public_trader_config),
             )
             // Authentication related
@@ -339,20 +339,21 @@ impl Server {
             .route("/login", post(handle_login))
             .route("/verify-otp", post(handle_verify_otp))
             .route("/complete-registration", post(handle_complete_registration))
-            .route("/start", post(handle_backtest_start))
-            .route("/pause", post(handle_backtest_pause))
-            .route("/resume", post(handle_backtest_resume))
-            .route("/stop", post(handle_backtest_stop))
-            .route("/label", post(handle_backtest_label))
-            .route("/delete", post(handle_backtest_delete))
-            .route("/status", get(handle_backtest_status))
-            .route("/runs", get(handle_backtest_runs))
-            .route("/equity", get(handle_backtest_equity))
-            .route("trades", get(handle_backtest_trades))
-            .route("/metrics", get(handle_backtest_metrics))
-            .route("/trace", get(handle_backtest_trace))
-            .route("/decisions", get(handle_backtest_decisions))
-            .route("/export", get(handle_backtest_export));
+            // Backtest routes
+            .route("/backtest/start", post(handle_backtest_start))
+            .route("/backtest/pause", post(handle_backtest_pause))
+            .route("/backtest/resume", post(handle_backtest_resume))
+            .route("/backtest/stop", post(handle_backtest_stop))
+            .route("/backtest/label", post(handle_backtest_label))
+            .route("/backtest/delete", post(handle_backtest_delete))
+            .route("/backtest/status", get(handle_backtest_status))
+            .route("/backtest/runs", get(handle_backtest_runs))
+            .route("/backtest/equity", get(handle_backtest_equity))
+            .route("/backtest/trades", get(handle_backtest_trades))
+            .route("/backtest/metrics", get(handle_backtest_metrics))
+            .route("/backtest/trace", get(handle_backtest_trace))
+            .route("/backtest/decisions", get(handle_backtest_decisions))
+            .route("/backtest/export", get(handle_backtest_export));
 
         // 受保护路由组 (需要 Auth 中间件)
         let protected_routes = Router::new()
@@ -361,16 +362,16 @@ impl Server {
             // AI trader management
             .route("/my-traders", get(handle_trader_list))
             .route("/traders", post(handle_create_trader))
-            .route("/traders/:id/config", get(handle_get_trader_config))
+            .route("/traders/{id}/config", get(handle_get_trader_config))
             .route(
-                "/traders/:id",
+                "/traders/{id}",
                 put(handle_update_trader).delete(handle_delete_trader),
             )
-            .route("/traders/:id/start", post(handle_start_trader))
-            .route("/traders/:id/stop", post(handle_stop_trader))
-            .route("/traders/:id/prompt", put(handle_update_trader_prompt))
-            .route("/traders/:id/sync-balance", post(handle_sync_balance))
-            .route("/traders/:id/close-position", post(handle_close_position))
+            .route("/traders/{id}/start", post(handle_start_trader))
+            .route("/traders/{id}/stop", post(handle_stop_trader))
+            .route("/traders/{id}/prompt", put(handle_update_trader_prompt))
+            .route("/traders/{id}/sync-balance", post(handle_sync_balance))
+            .route("/traders/{id}/close-position", post(handle_close_position))
             // AI model configuration
             .route(
                 "/models",
@@ -395,13 +396,13 @@ impl Server {
             .route("/strategies/preview-prompt", post(handle_preview_prompt))
             .route("/strategies/test-run", post(handle_strategy_test_run))
             .route(
-                "/strategies/:id",
+                "/strategies/{id}",
                 get(handle_get_strategy)
                     .put(handle_update_strategy)
                     .delete(handle_delete_strategy),
             )
-            .route("/strategies/:id/activate", post(handle_activate_strategy))
-            .route("/strategies/:id/duplicate", post(handle_duplicate_strategy))
+            .route("/strategies/{id}/activate", post(handle_activate_strategy))
+            .route("/strategies/{id}/duplicate", post(handle_duplicate_strategy))
             // Data for specified trader
             .route("/status", get(handle_status))
             .route("/account", get(handle_account))

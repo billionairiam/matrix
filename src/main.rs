@@ -103,7 +103,7 @@ async fn main() -> Result<()> {
     // Start WebSocket market monitor FIRST (before loading traders that may need market data)
     // This ensures WSMonitorCli is initialized before any trader tries to access it
     tokio::spawn(async move {
-        WSMonitor::new(100).start(vec![]);
+        WSMonitor::new(100).start(vec![]).await;
     });
     info!("📊 WebSocket market monitor started");
 
