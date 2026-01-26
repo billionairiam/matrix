@@ -10,7 +10,7 @@ use store::exchange::Exchange;
 use store::store::Store;
 use store::trader::Trader;
 use tokio::sync::RwLock;
-use tracing::info;
+use tracing::{error, info, instrument};
 use trader::auto_trader::AutoTrader;
 use trader::auto_trader::AutoTraderConfig;
 
@@ -61,6 +61,7 @@ impl TraderManager {
         traders.keys().cloned().collect()
     }
 
+    #[instrument(skip(self))]
     pub async fn start_all(&self) {
         let traders = self.traders.read().await;
         info!("🚀 Starting all traders...");
@@ -72,12 +73,13 @@ impl TraderManager {
             tokio::spawn(async move {
                 info!("{}", &format!("▶️  Starting {}...", name));
                 if let Err(err) = t_clone.run().await {
-                    info!("{}", &format!("❌ {} runtime error: {:?}", name, err));
+                    error!("{}", &format!("❌ {} runtime error: {:?}", name, err));
                 }
             });
         }
     }
 
+    #[instrument(skip(self))]
     pub async fn stop_all(&self) {
         let traders = self.traders.read().await;
         info!("⏹  Stopping all traders...");
@@ -86,11 +88,12 @@ impl TraderManager {
         }
     }
 
+    #[instrument(skip(self, st))]
     pub async fn auto_start_running_traders(&self, st: &Store) {
         let trader_list = match st.trader().await.list_all().await {
             Ok(list) => list,
             Err(e) => {
-                info!("{}", &format!("⚠️ Failed to get trader list: {:?}", e));
+                error!("{}", &format!("⚠️ Failed to get trader list: {:?}", e));
                 return;
             }
         };
@@ -164,6 +167,7 @@ impl TraderManager {
     }
 
     // GetCompetitionData retrieves competition data (all traders across platform)
+    #[instrument(skip(self))]
     pub async fn get_competition_data(&self) -> Result<Value> {
         // Check if cache is valid (within 30 seconds)
         {
@@ -250,6 +254,7 @@ impl TraderManager {
     }
 
     // getConcurrentTraderData concurrently fetches data for multiple traders
+    #[instrument(skip_all)]
     async fn get_concurrent_trader_data(
         &self,
         traders: &[Arc<AutoTrader>],
@@ -259,7 +264,6 @@ impl TraderManager {
             .map(|t| {
                 let t = t.clone();
                 async move {
-                    // 设置 3 秒超时
                     let result = tokio::time::timeout(Duration::from_secs(3), async {
                         t.get_account_info().await
                     })
@@ -275,7 +279,6 @@ impl TraderManager {
                         }
                     };
 
-                    // 基础字段
                     data.insert("trader_id".to_string(), json!(t.get_id()));
                     data.insert("trader_name".to_string(), json!(t.get_name()));
                     data.insert("ai_model".to_string(), json!(t.get_ai_model()));
@@ -287,7 +290,6 @@ impl TraderManager {
 
                     match result {
                         Ok(Ok(account)) => {
-                            // 成功获取
                             data.insert(
                                 "total_equity".to_string(),
                                 account.get("total_equity").cloned().unwrap_or(json!(0.0)),
@@ -313,8 +315,7 @@ impl TraderManager {
                             );
                         }
                         Ok(Err(e)) => {
-                            // 内部错误
-                            info!(
+                            error!(
                                 "{}",
                                 &format!(
                                     "⚠️ Failed to get account info for trader {}: {:?}",
@@ -330,7 +331,6 @@ impl TraderManager {
                             data.insert("error".to_string(), json!("Failed to get account data"));
                         }
                         Err(_) => {
-                            // 超时
                             info!(
                                 "{}",
                                 &format!(
@@ -354,9 +354,7 @@ impl TraderManager {
         Ok(join_all(futures).await)
     }
 
-    // 获取 Top 5 Traders
     pub async fn get_top_traders_data(&self) -> Result<Value> {
-        // 复用 GetCompetitionData 逻辑
         let competition_data = self.get_competition_data().await?;
 
         let mut traders = competition_data["traders"]
@@ -375,7 +373,6 @@ impl TraderManager {
         }))
     }
 
-    // 从内存中移除 Trader
     pub async fn remove_trader(&self, trader_id: &str) {
         let mut traders = self.traders.write().await;
         if traders.remove(trader_id).is_some() {
@@ -383,7 +380,7 @@ impl TraderManager {
         }
     }
 
-    // 加载指定用户的 Traders
+    #[instrument(skip(self, st))]
     pub async fn load_user_traders_from_store(&self, st: &Store, user_id: &str) -> Result<()> {
         let traders_cfg = st.trader().await.list(user_id).await?;
         info!(
@@ -398,11 +395,9 @@ impl TraderManager {
         let ai_models = st.ai_model().await.list(user_id).await?;
         let exchanges = st.exchange().await.list(user_id).await?;
 
-        // 准备好所有需要添加的 trader，最后统一插入
         let mut traders_to_add = Vec::new();
 
         for trader_cfg in traders_cfg {
-            // 检查是否已存在 (需要读锁)
             if self.traders.read().await.contains_key(&trader_cfg.id) {
                 info!(
                     "{}",
@@ -411,7 +406,6 @@ impl TraderManager {
                 continue;
             }
 
-            // 匹配 AI Model
             let ai_model_cfg = ai_models
                 .iter()
                 .find(|m| m.id == trader_cfg.ai_model_id)
@@ -444,7 +438,6 @@ impl TraderManager {
                 continue;
             }
 
-            // 匹配 Exchange
             let exchange_cfg = exchanges.iter().find(|e| e.id == trader_cfg.exchange_id);
 
             if exchange_cfg.is_none() {
@@ -481,7 +474,6 @@ impl TraderManager {
             traders_to_add.push((trader_cfg, ai_model_cfg.clone(), exchange_cfg.clone()));
         }
 
-        // 实际加载逻辑
         for (trader_cfg, ai_model_cfg, exchange_cfg) in traders_to_add {
             if let Err(e) = self
                 .add_trader_from_store(&trader_cfg, &ai_model_cfg, &exchange_cfg, st)
@@ -497,7 +489,7 @@ impl TraderManager {
         Ok(())
     }
 
-    // 加载所有用户的 Traders
+    #[instrument(skip(self, st))]
     pub async fn load_traders_from_store(&self, st: &Store) -> Result<()> {
         let user_ids = st.user().get_all_ids().await?;
         info!(
@@ -540,7 +532,6 @@ impl TraderManager {
                 continue;
             }
 
-            // 获取该用户的配置
             let ai_models = st
                 .ai_model()
                 .await
@@ -554,7 +545,6 @@ impl TraderManager {
                 .await
                 .unwrap_or_default();
 
-            // 匹配 AI Model
             let mut ai_model_cfg = ai_models.iter().find(|m| m.id == trader_cfg.ai_model_id);
             if ai_model_cfg.is_none() {
                 if let Some(legacy_match) = ai_models
@@ -595,7 +585,6 @@ impl TraderManager {
                 continue;
             }
 
-            // 匹配 Exchange
             let exchange_cfg = exchanges.iter().find(|e| e.id == trader_cfg.exchange_id);
             if exchange_cfg.is_none() {
                 info!(
@@ -641,7 +630,7 @@ impl TraderManager {
         Ok(())
     }
 
-    // 内部方法：从配置添加 Trader
+    #[instrument(skip(self, st))]
     async fn add_trader_from_store(
         &self,
         trader_cfg: &Trader,
@@ -693,7 +682,6 @@ impl TraderManager {
             ));
         };
 
-        // 构建 AutoTraderConfig
         let mut config = AutoTraderConfig {
             id: trader_cfg.id.clone(),
             name: trader_cfg.name.clone(),
@@ -719,7 +707,6 @@ impl TraderManager {
             scan_interval_sec: trader_cfg.scan_interval_minutes as u64,
         };
 
-        // 设置 API Keys
         match exchange_cfg.id.as_str() {
             "binance" => {
                 config.binance_api_key = exchange_cfg.api_key.clone();
@@ -737,7 +724,6 @@ impl TraderManager {
             _ => {}
         }
 
-        // 设置 AI Model Keys
         if ai_model_cfg.provider == "qwen" {
             config.qwen_key = ai_model_cfg.api_key.clone();
         } else if ai_model_cfg.provider == "deepseek" {
@@ -752,7 +738,6 @@ impl TraderManager {
         .await
         .map_err(|e| anyhow!("failed to create trader: {:?}", e))?;
 
-        // 设置自定义 Prompt
         if !trader_cfg.custom_prompt.is_empty() {
             at.set_custom_prompt(&trader_cfg.custom_prompt).await;
             at.set_override_base_prompt(trader_cfg.override_base_prompt)
@@ -764,7 +749,6 @@ impl TraderManager {
             }
         }
 
-        // 插入 Map (写锁)
         let mut map = self.traders.write().await;
         map.insert(trader_cfg.id.clone(), Arc::new(at));
 

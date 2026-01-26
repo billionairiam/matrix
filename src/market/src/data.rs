@@ -1,15 +1,14 @@
-use crate::monitor::WSMonitor;
+use std::fmt::Write;
+use std::time::{Duration, Instant};
 
 use super::types::{Data, IntradayData, Kline, LongerTermData, OIData, TimeframeSeriesData};
-
+use crate::monitor::WSMonitor;
 use anyhow::{Result, anyhow};
 use chrono::Duration as ChronoDuration;
 use dashmap::DashMap;
 use once_cell::sync::Lazy;
 use reqwest::Client;
-use std::fmt::Write;
-use std::time::{Duration, Instant};
-use tracing::info;
+use tracing::{instrument, warn};
 
 struct FundingRateCache {
     rate: f64,
@@ -20,6 +19,7 @@ static FUNDING_RATE_MAP: Lazy<DashMap<String, FundingRateCache>> = Lazy::new(Das
 const FR_CACHE_TTL: Duration = Duration::from_secs(3600); // 1 Hour
 
 /// Get retrieves market data for the specified token
+#[instrument]
 pub async fn get(symbol: &str) -> Result<Data> {
     let symbol = normalize(symbol);
     let wsmonitor_cli = WSMonitor::new(5 as usize);
@@ -32,7 +32,7 @@ pub async fn get(symbol: &str) -> Result<Data> {
 
     // Data staleness detection
     if is_stale_data(&klines3m, &symbol) {
-        info!(
+        warn!(
             "⚠️  WARNING: {} detected stale data (consecutive price freeze), skipping symbol",
             symbol
         );
@@ -106,6 +106,7 @@ pub async fn get(symbol: &str) -> Result<Data> {
 }
 
 /// get_with_timeframes retrieves market data for specified multiple timeframes
+#[instrument]
 pub async fn get_with_timeframes(
     symbol: &str,
     timeframes: &mut Vec<String>,
@@ -133,7 +134,7 @@ pub async fn get_with_timeframes(
         match wsmonitor_cli.get_current_klines(&symbol, tf).await {
             Ok(klines) => {
                 if klines.is_empty() {
-                    info!("⚠️ {} {} K-line data is empty", symbol, tf);
+                    warn!("⚠️ {} {} K-line data is empty", symbol, tf);
                     continue;
                 }
 
@@ -146,7 +147,7 @@ pub async fn get_with_timeframes(
                 timeframe_data.insert(tf.clone(), series_data);
             }
             Err(e) => {
-                info!("⚠️ Failed to get {} {} K-line: {}", symbol, tf, e);
+                warn!("⚠️ Failed to get {} {} K-line: {}", symbol, tf, e);
                 continue;
             }
         }
@@ -157,7 +158,7 @@ pub async fn get_with_timeframes(
 
     // Data staleness detection
     if is_stale_data(&primary_klines, &symbol) {
-        info!(
+        warn!(
             "⚠️  WARNING: {} detected stale data (consecutive price freeze), skipping symbol",
             symbol
         );
@@ -457,10 +458,6 @@ fn calculate_longer_term_data(klines: &[Kline]) -> LongerTermData {
 
     data
 }
-
-// -----------------------------------------------------------------------------
-// API Utilities
-// -----------------------------------------------------------------------------
 
 async fn get_open_interest_data(symbol: &str) -> Result<OIData, String> {
     let url = format!(
@@ -808,6 +805,7 @@ fn price_change_from_series(series: &[Kline], duration: ChronoDuration) -> f64 {
     0.0
 }
 
+#[instrument]
 fn is_stale_data(klines: &[Kline], symbol: &str) -> bool {
     if klines.len() < 5 {
         return false;
@@ -829,13 +827,13 @@ fn is_stale_data(klines: &[Kline], symbol: &str) -> bool {
     let all_volume_zero = recent_klines.iter().all(|k| k.volume <= 0.0);
 
     if all_volume_zero {
-        info!(
+        warn!(
             "⚠️  {} stale data confirmed: price freeze + zero volume",
             symbol
         );
         true
     } else {
-        info!(
+        warn!(
             "⚠️  {} detected extreme price stability (no fluctuation for {} consecutive periods), but volume is normal",
             symbol, STALE_PRICE_THRESHOLD
         );

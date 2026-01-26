@@ -1,9 +1,8 @@
 use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Duration, Utc};
-use serde::{Deserialize, Serialize};
-
 use market::data::normalize;
 use market::timeframe::normalize_timeframe;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub enum FillPolicy {

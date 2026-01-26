@@ -47,7 +47,7 @@ use store::decision::PositionSnapshot;
 use thiserror::Error;
 use tokio::sync::{Mutex, Notify, RwLock, oneshot};
 use tokio::time::{MissedTickBehavior, interval, sleep};
-use tracing::info;
+use tracing::{info, instrument};
 
 const METRICS_WRITE_INTERVAL: TimeDelta = TimeDelta::try_seconds(5).unwrap();
 const AI_DECISION_MAX_RETRIES: usize = 3;
@@ -149,7 +149,7 @@ impl Runner {
             ai_cache = cache;
         }
 
-        let runner = Runner {
+        let runner = Arc::new(Runner {
             cfg: cfg,
             feed: feed.into(),
             decision_log_dir: d_log_dir,
@@ -167,9 +167,11 @@ impl Runner {
             metrics: RwLock::new(TimeMetrics::default()),
             lock_control: Mutex::new(LockControl::default()),
             oi_client: coin_pool.into(),
-        };
+        });
 
-        Ok(Arc::new(runner))
+        runner.clone().init_lock().await?;
+
+        Ok(runner)
     }
 
     pub async fn current_metadata(&self) -> Result<RunMetadata> {
@@ -256,6 +258,7 @@ impl Runner {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     async fn lock_heartbeat_loop(self: Arc<Self>) -> Result<()> {
         let mut ticker = interval(LOCK_HEARTBEAT_INTERVAL);
         ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -496,7 +499,7 @@ impl Runner {
 
         self.maybe_checkpoint().await?;
         self.persist_metadata().await;
-        self.persist_metrics(false).await;
+        self.persist_metrics(false).await?;
 
         if !had_error && liq_note.is_empty() {
             self.set_last_error(None).await;
@@ -1108,6 +1111,7 @@ impl Runner {
         self.error_state.write().await.last_error = err;
     }
 
+    #[instrument(skip(self))]
     pub async fn persist_metadata(&self) {
         let state = { self.state.read().await.clone() };
         let status = { self.status.read().await.clone() };
@@ -1191,7 +1195,7 @@ impl Runner {
             should = time_check || bar_check;
         }
         if should {
-            self.force_checkpoint().await;
+            self.force_checkpoint().await?;
         }
         Ok(())
     }

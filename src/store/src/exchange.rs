@@ -1,11 +1,10 @@
+use std::sync::Arc;
+
+use super::CryptoProvider;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{QueryBuilder, Row, SqlitePool, sqlite::SqliteRow};
-use std::sync::Arc;
-
-use super::CryptoProvider;
-
 use tracing::{debug, instrument};
 
 /// Exchange exchange configuration

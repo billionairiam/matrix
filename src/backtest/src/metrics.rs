@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 use std::f64;
 
-use anyhow::{Result, anyhow};
-
 use crate::config::BacktestConfig;
 use crate::storage::load_equity_points;
 use crate::storage::load_trade_events;
@@ -10,6 +8,7 @@ use crate::types::BacktestState;
 use crate::types::EquityPoint;
 use crate::types::Metrics;
 use crate::types::TradeEvent;
+use anyhow::{Result, anyhow};
 
 /// CalculateMetrics reads existing logs and calculates summary metrics.
 pub async fn calculate_metrics(

@@ -4,11 +4,10 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::time::Duration;
 
+use crate::storage::ensure_run_dir;
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-
-use crate::storage::ensure_run_dir;
 
 const LOCK_FILE_NAME: &str = "lock";
 pub const LOCK_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(2);
@@ -31,7 +30,7 @@ fn run_dir(run_id: &str) -> PathBuf {
 
 /// Writes JSON to a file atomically (write to temp, then rename).
 pub async fn write_json_atomic<T: Serialize>(path: &Path, data: &T) -> Result<()> {
-    // 1. Create a temporary file in the same directory
+    // Create a temporary file in the same directory
     let dir = path.parent().unwrap_or_else(|| Path::new("."));
     let file_name = path
         .file_name()
@@ -43,13 +42,12 @@ pub async fn write_json_atomic<T: Serialize>(path: &Path, data: &T) -> Result<()
 
     let file = File::create(&temp_path)?;
 
-    // 2. Write JSON
     serde_json::to_writer(&file, data)?;
 
-    // 3. Sync to disk to ensure data is written
+    // Sync to disk to ensure data is written
     file.sync_all()?;
 
-    // 4. Atomic rename (mv temp lock)
+    // Atomic rename (mv temp lock)
     fs::rename(temp_path, path)?;
 
     Ok(())

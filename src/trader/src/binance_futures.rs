@@ -1,3 +1,6 @@
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use binance::account::OrderSide;
@@ -11,10 +14,8 @@ use binance::futures::model::Filters;
 use chrono::prelude::*;
 use rand::Rng;
 use serde_json::{Map, Value, json};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use tracing::{error, info, warn};
+use tracing::{error, info, instrument, warn};
 
 use super::Trader;
 
@@ -54,7 +55,6 @@ impl FuturesTrader {
 
         // Note: Server time sync is usually handled automatically by the binance crate
         // during requests if configured, but we can do a manual check if strictly needed.
-
         let trader = Self {
             account_client,
             general_client,
@@ -63,18 +63,11 @@ impl FuturesTrader {
             positions_cache: Arc::new(RwLock::new(None)),
         };
 
-        // Initialize Dual Side Position Mode
-        // We spawn a task or run blocking because 'new' is usually synchronous.
-        // For this example, we assume this is called in an async context or we tolerate the async call.
-        // However, in Rust, constructors shouldn't be async.
-        // We will run this initialization logic in a separate async init method or allow the user to call it.
-        // For strict porting, we can use `tokio::task::spawn` but we can't await it in a non-async new.
-        // Here we just log that it should be called.
-
         trader
     }
 
     /// Async initialization to set hedge mode, mimicking the constructor logic
+    #[instrument(skip(self))]
     pub async fn init(&self) -> Result<()> {
         self.sync_server_time().await;
         if let Err(e) = self.set_dual_side_position().await {
@@ -104,12 +97,12 @@ impl FuturesTrader {
         order_id
     }
 
+    #[instrument(skip(self))]
     async fn sync_server_time(&self) {
         match self.general_client.get_server_time() {
             Ok(time) => {
                 let now = Utc::now().timestamp_millis() as u64;
                 // Note: binance-rs handles offset internally usually,
-                // but just logging here to match Go code.
                 let offset = if now > time.server_time {
                     now - time.server_time
                 } else {
@@ -121,6 +114,7 @@ impl FuturesTrader {
         }
     }
 
+    #[instrument(skip(self))]
     pub async fn set_dual_side_position(&self) -> Result<()> {
         match self.account_client.change_position_mode(true) {
             Ok(_) => {
@@ -142,6 +136,7 @@ impl FuturesTrader {
         }
     }
 
+    #[instrument(skip(self))]
     pub async fn get_positions(&self) -> Result<Vec<Map<String, Value>>> {
         let cache = self.positions_cache.read().await;
         if let Some(c) = &*cache {
@@ -229,6 +224,7 @@ impl FuturesTrader {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     pub async fn get_symbol_precision(&self, symbol: &str) -> Result<usize> {
         let exchange_info = self
             .general_client
@@ -271,6 +267,7 @@ impl FuturesTrader {
 
 #[async_trait]
 impl Trader for FuturesTrader {
+    #[instrument(skip(self))]
     async fn get_balance(&self) -> Result<Map<String, Value>> {
         let cache = self.balance_cache.read().await;
         if let Some(c) = &*cache {
@@ -319,6 +316,7 @@ impl Trader for FuturesTrader {
         }
     }
 
+    #[instrument(skip(self))]
     async fn get_positions(&self) -> Result<Vec<Map<String, Value>>> {
         let cache = self.positions_cache.read().await;
         if let Some(c) = &*cache {
@@ -373,6 +371,7 @@ impl Trader for FuturesTrader {
         }
     }
 
+    #[instrument(skip(self))]
     async fn open_long(&self, symbol: &str, quantity: f64, leverage: i32) -> Result<Value> {
         let _ = self.cancel_all_orders(symbol).await;
         self.set_leverage(symbol, leverage).await?;
@@ -405,6 +404,7 @@ impl Trader for FuturesTrader {
         }
     }
 
+    #[instrument(skip(self))]
     async fn open_short(&self, symbol: &str, quantity: f64, leverage: i32) -> Result<Value> {
         let _ = self.cancel_all_orders(symbol).await;
         self.set_leverage(symbol, leverage).await?;
@@ -437,6 +437,7 @@ impl Trader for FuturesTrader {
         }
     }
 
+    #[instrument(skip(self))]
     async fn close_long(&self, symbol: &str, mut quantity: f64) -> Result<Value> {
         if quantity == 0.0 {
             let positions = self.get_positions().await?;
@@ -473,6 +474,7 @@ impl Trader for FuturesTrader {
         }
     }
 
+    #[instrument(skip(self))]
     async fn close_short(&self, symbol: &str, mut quantity: f64) -> Result<Value> {
         if quantity == 0.0 {
             let positions = self.get_positions().await?;
@@ -510,6 +512,7 @@ impl Trader for FuturesTrader {
         }
     }
 
+    #[instrument(skip(self))]
     async fn set_leverage(&self, symbol: &str, leverage: i32) -> Result<()> {
         // Check current leverage (optimistic check)
         if let Ok(positions) = self.get_positions().await {
@@ -547,6 +550,7 @@ impl Trader for FuturesTrader {
         }
     }
 
+    #[instrument(skip(self))]
     async fn set_margin_mode(&self, symbol: &str, is_cross_margin: bool) -> Result<()> {
         let mode_str = if is_cross_margin {
             "Cross Margin"
@@ -569,14 +573,14 @@ impl Trader for FuturesTrader {
                     return Ok(());
                 }
                 if err_str.contains("exists position") {
-                    info!(
+                    warn!(
                         "  ⚠️ {} has open positions, cannot change margin mode",
                         symbol
                     );
                     return Ok(());
                 }
                 if err_str.contains("Multi-Assets mode") || err_str.contains("-4168") {
-                    info!(
+                    warn!(
                         "  ⚠️ {} detected Multi-Assets mode, forcing Cross Margin mode",
                         symbol
                     );
@@ -585,11 +589,11 @@ impl Trader for FuturesTrader {
                 if err_str.to_lowercase().contains("unified")
                     || err_str.to_lowercase().contains("portfolio")
                 {
-                    info!("  ❌ {} detected Unified Account API", symbol);
+                    error!("  ❌ {} detected Unified Account API", symbol);
                     return Err(anyhow!("Unified Account API detected"));
                 }
 
-                info!("  ⚠️ Failed to set margin mode: {}", err_str);
+                warn!("  ⚠️ Failed to set margin mode: {}", err_str);
                 Ok(())
             }
         }
@@ -691,6 +695,7 @@ impl Trader for FuturesTrader {
     }
 
     // This implements the logic to selectively cancel StopLoss/TakeProfit orders
+    #[instrument(skip(self))]
     async fn cancel_stop_loss_orders(&self, symbol: &str) -> Result<()> {
         let open_orders = self
             .account_client
@@ -737,6 +742,7 @@ impl Trader for FuturesTrader {
         }
     }
 
+    #[instrument(skip(self))]
     async fn cancel_take_profit_orders(&self, symbol: &str) -> Result<()> {
         let open_orders = self
             .account_client
@@ -805,14 +811,12 @@ impl Trader for FuturesTrader {
     async fn get_order_status(&self, symbol: &str, order_id: &str) -> Result<Map<String, Value>> {
         let oid: u64 = order_id.parse().map_err(|_| anyhow!("invalid order ID"))?;
 
-        // 1. We use .map_err() to convert the non-Sync Binance error into a String message.
-        //    This satisfies anyhow's thread-safety requirements.
         let orders = self
             .account_client
             .get_all_orders(symbol, Some(oid), None, None, None)
             .map_err(|e| anyhow!("Binance error: {:?}", e))?;
 
-        // 2. Safely access the first element
+        // Safely access the first element
         if let Some(order) = orders.first() {
             let mut status_map = Map::new();
             status_map.insert("orderId".into(), order.order_id.into());

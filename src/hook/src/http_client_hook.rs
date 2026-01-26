@@ -1,5 +1,7 @@
-use reqwest::Client;
 use std::error::Error;
+
+use reqwest::Client;
+use tracing::{info, instrument};
 
 pub struct SetHttpClientResult {
     /// Used Box<dyn Error ...> to store any type of error dynamically
@@ -15,24 +17,18 @@ impl SetHttpClientResult {
         Self { client, err }
     }
 
-    /// Equivalent to: func (r *SetHttpClientResult) Error() error
-    /// Checks for error and logs it if present.
+    #[instrument(skip(self))]
     pub fn error(&self) -> Option<&(dyn Error + Send + Sync)> {
         if let Some(e) = &self.err {
-            // Using println! here, but in production use the `log` crate: log::error!(...)
-            log::info!("⚠️ Error executing SetHttpClientResult: {}", e);
+            info!("⚠️ Error executing SetHttpClientResult: {}", e);
             return Some(e.as_ref());
         }
         None
     }
 
-    /// Equivalent to: func (r *SetHttpClientResult) GetResult() *http.Client
-    /// Calls Error() for the logging side-effect, then returns the client.
     pub fn get_result(&self) -> Option<Client> {
-        // Trigger the side-effect (logging) just like the Go code
         let _ = self.error();
 
-        // return the client. reqwest::Client is cheap to clone.
         self.client.clone()
     }
 }

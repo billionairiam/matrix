@@ -2885,8 +2885,8 @@ name = "hook"
 version = "0.1.0"
 dependencies = [
  "binance",
- "log",
  "reqwest 0.11.27",
+ "tracing",
 ]
 
 [[package]]
@@ -3714,7 +3714,6 @@ dependencies = [
  "chrono",
  "dashmap",
  "futures-util",
- "log",
  "logger",
  "once_cell",
  "reqwest 0.11.27",
@@ -4380,11 +4379,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
- "log",
  "reqwest 0.11.27",
  "serde",
  "serde_json",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

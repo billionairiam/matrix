@@ -1,14 +1,15 @@
-use futures_util::{SinkExt, StreamExt, stream::SplitSink};
-use log::{error, info, warn};
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use futures_util::{SinkExt, StreamExt, stream::SplitSink};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, mpsc};
 use tokio::time::sleep;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
+use tracing::{error, info, instrument, warn};
 use url::Url;
 
 // Type alias for the Write half of the WebSocket stream
@@ -135,6 +136,7 @@ impl WSClient {
 
     // Connects to the WebSocket.
     // Note: This is an async fn.
+    #[instrument]
     pub async fn connect(&self) -> Result<(), String> {
         let url = Url::parse("wss://ws-fapi.binance.com/ws-fapi/v1")
             .map_err(|e| format!("Invalid URL: {}", e))?;
@@ -176,6 +178,7 @@ impl WSClient {
         self.subscribe(&stream).await
     }
 
+    #[instrument]
     async fn subscribe(&self, stream: &str) -> Result<(), String> {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -233,8 +236,6 @@ impl WSClient {
             }
         }
 
-        // Connection lost, trigger reconnect logic
-        // NOTE: We call this synchronously to break the async type cycle
         self.handle_reconnect();
     }
 
@@ -262,16 +263,13 @@ impl WSClient {
     // Changed to a synchronous function that spawns the async task.
     // This breaks the recursive opaque type cycle:
     // connect -> read_messages -> handle_reconnect -> spawn(connect)
+    #[instrument]
     fn handle_reconnect(&self) {
         if !self.reconnect || self.shutdown_tx.is_closed() {
             return;
         }
 
         info!("Attempting to reconnect...");
-
-        // Reset writer to None immediately
-        // (Blocking mutex lock here is fine as it's short, or we can do it in the spawn)
-        // We'll do it in the spawn to keep this fn fast.
 
         let client_clone = self.clone();
         tokio::spawn(async move {
@@ -327,7 +325,6 @@ impl WSClient {
         // Dropping the only Sender will close the channel.
         // We drop our handle, and any cloned handles in spawned tasks should also handle the closed signal.
         // However, explicitly closing internal things helps.
-
         let mut writer_guard = self.writer.lock().await;
         if let Some(mut writer) = writer_guard.take() {
             let _ = writer.close().await;

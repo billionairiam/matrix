@@ -31,7 +31,7 @@ use mcp::Provider;
 use store::decision::DecisionRecord;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{info, instrument};
 
 pub type AIConfigResolver = Box<dyn Fn(&mut BacktestConfig) -> Result<()> + Send + Sync>;
 
@@ -325,6 +325,7 @@ impl Manager {
         Some(payload)
     }
 
+    #[instrument(skip(self, runner))]
     pub fn launch_watcher(self: Arc<Self>, run_id: &str, runner: Arc<Runner>) {
         let run_id_clone = run_id.to_string().clone();
         // Spawn a background task
@@ -366,6 +367,7 @@ impl Manager {
         }
     }
 
+    #[instrument(skip(self))]
     async fn store_metadata(&self, run_id: &str, meta: Option<RunMetadata>) {
         let mut meta = match meta {
             Some(m) => m,
@@ -425,6 +427,7 @@ impl Manager {
         Ok(create_run_export(run_id).await?)
     }
 
+    #[instrument(skip(self))]
     pub async fn restore_runs(&self) -> Result<()> {
         let run_ids = load_run_ids().await?;
         for run_id in run_ids {

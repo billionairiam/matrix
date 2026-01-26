@@ -1,13 +1,6 @@
 use std::fs::File;
 use std::io::Write;
 
-use anyhow::{Result, anyhow};
-use chrono::{DateTime, Utc};
-use serde::Serialize;
-use sqlx::{Pool, Row, Sqlite};
-use zip::CompressionMethod;
-use zip::write::FileOptions;
-
 use crate::config::BacktestConfig;
 use crate::registry::RunIndexEntry;
 use crate::storage::ProgressPayload;
@@ -18,8 +11,13 @@ use crate::types::RunMetadata;
 use crate::types::RunState;
 use crate::types::RunSummary;
 use crate::types::TradeEvent;
-
+use anyhow::{Result, anyhow};
+use chrono::{DateTime, Utc};
+use serde::Serialize;
+use sqlx::{Pool, Row, Sqlite};
 use store::decision::DecisionRecord;
+use zip::CompressionMethod;
+use zip::write::FileOptions;
 
 pub async fn save_checkpoint_db(
     pool: &Pool<Sqlite>,
@@ -619,12 +617,6 @@ pub async fn list_index_entries_db(pool: &Pool<Sqlite>) -> Result<Vec<RunIndexEn
     }
     Ok(entries)
 }
-
-// --- Zip Export ---
-
-// Zip export involves blocking IO (zip writing) and potentially heavy fetching.
-// Best practice in async Rust is to use spawn_blocking for the zip file writing part
-// and fetch data from DB in async.
 
 pub async fn create_run_export_db(pool: &Pool<Sqlite>, run_id: &str) -> Result<String> {
     let run_id = run_id.to_string();

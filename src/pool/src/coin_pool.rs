@@ -1,14 +1,15 @@
-use anyhow::{Context, Result};
-use chrono::{DateTime, Duration, Utc};
-use log::{info, warn};
-use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
+
+use anyhow::{Context, Result};
+use chrono::{DateTime, Duration, Utc};
+use serde::{Deserialize, Serialize};
 use tokio::fs;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
+use tracing::{error, info, instrument, warn};
 
 const DEFAULT_MAINSTREAM_COINS: &[&str] = &[
     "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "HYPEUSDT",
@@ -81,7 +82,7 @@ struct CoinPoolApiResponse {
 struct CoinPoolApiData {
     coins: Vec<CoinInfo>,
     #[serde(default)]
-    count: i32,
+    _count: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -166,6 +167,7 @@ impl CoinPoolClient {
         *use_default_coins_write = use_default;
     }
 
+    #[instrument(skip(self))]
     pub async fn set_default_coins(&mut self, coins: Vec<String>) {
         if !coins.is_empty() {
             info!(
@@ -179,6 +181,7 @@ impl CoinPoolClient {
         }
     }
 
+    #[instrument(skip(self))]
     pub async fn get_coin_pool(&self) -> Result<Vec<CoinInfo>> {
         let (use_default, api_url) = {
             let use_default_lock = self.config.use_default_coins.read().await;
@@ -193,7 +196,7 @@ impl CoinPoolClient {
         }
 
         if api_url.is_empty() {
-            info!("⚠️  Coin pool API URL not configured, using default mainstream coin list");
+            warn!("⚠️  Coin pool API URL not configured, using default mainstream coin list");
             let default_coins = self.default_coins.read().await;
             return Ok(self.convert_symbols_to_coins(&default_coins));
         }
@@ -203,7 +206,7 @@ impl CoinPoolClient {
 
         for attempt in 1..=max_retries {
             if attempt > 1 {
-                info!(
+                warn!(
                     "⚠️  Retry attempt {} of {} to fetch coin pool...",
                     attempt, max_retries
                 );
@@ -221,13 +224,13 @@ impl CoinPoolClient {
                     return Ok(coins);
                 }
                 Err(e) => {
-                    info!("❌ Request attempt {} failed: {:?}", attempt, e);
+                    error!("❌ Request attempt {} failed: {:?}", attempt, e);
                     last_err = Some(e);
                 }
             }
         }
 
-        info!("⚠️  All API requests failed, trying to use historical cache data...");
+        warn!("⚠️  All API requests failed, trying to use historical cache data...");
         if let Ok(cached_coins) = self.load_coin_pool_cache().await {
             info!(
                 "✓ Using historical cache data ({} coins)",
@@ -244,6 +247,7 @@ impl CoinPoolClient {
         Ok(self.convert_symbols_to_coins(&default_coins))
     }
 
+    #[instrument(skip(self))]
     async fn fetch_coin_pool(&self) -> Result<Vec<CoinInfo>> {
         info!("🔄 Requesting AI500 coin pool...");
 
@@ -288,6 +292,7 @@ impl CoinPoolClient {
         Ok(coins)
     }
 
+    #[instrument(skip(self))]
     async fn save_coin_pool_cache(&self, coins: &[CoinInfo]) -> Result<()> {
         fs::create_dir_all(self.config.cache_dir.as_ref()).await?;
 
@@ -305,6 +310,7 @@ impl CoinPoolClient {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     async fn load_coin_pool_cache(&self) -> Result<Vec<CoinInfo>> {
         let path = Path::new(self.config.cache_dir.as_ref()).join("latest.json");
         if !path.exists() {
@@ -377,14 +383,14 @@ impl CoinPoolClient {
     // ==========================================
     // OI Top Logic
     // ==========================================
-
+    #[instrument(skip(self))]
     pub async fn get_oi_top_positions(&self) -> Result<Vec<OIPosition>> {
         let api_url = {
             let api_url_lock = self.oi_config.api_url.read().await;
             api_url_lock.clone()
         };
         if api_url.trim().is_empty() {
-            info!("⚠️  OI Top API URL not configured, skipping OI Top data fetch");
+            warn!("⚠️  OI Top API URL not configured, skipping OI Top data fetch");
             return Ok(Vec::new());
         }
 
@@ -393,7 +399,7 @@ impl CoinPoolClient {
 
         for attempt in 1..=max_retries {
             if attempt > 1 {
-                info!(
+                warn!(
                     "⚠️  Retry attempt {} of {} to fetch OI Top data...",
                     attempt, max_retries
                 );
@@ -417,7 +423,7 @@ impl CoinPoolClient {
             }
         }
 
-        info!("⚠️  All OI Top API requests failed, trying to use historical cache data...");
+        warn!("⚠️  All OI Top API requests failed, trying to use historical cache data...");
         if let Ok(cached) = self.load_oi_top_cache().await {
             info!(
                 "✓ Using historical OI Top cache data ({} coins)",
@@ -476,6 +482,7 @@ impl CoinPoolClient {
         Ok(body.data.positions)
     }
 
+    #[instrument(skip(self))]
     async fn save_oi_top_cache(&self, positions: &[OIPosition]) -> Result<()> {
         fs::create_dir_all(self.oi_config.cache_dir.as_ref()).await?;
 
@@ -493,6 +500,7 @@ impl CoinPoolClient {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     async fn load_oi_top_cache(&self) -> Result<Vec<OIPosition>> {
         let path = Path::new(self.oi_config.cache_dir.as_ref()).join("oi_top_latest.json");
         if !path.exists() {
@@ -531,7 +539,7 @@ impl CoinPoolClient {
     // ==========================================
     // Merged Pool Logic
     // ==========================================
-
+    #[instrument(skip(self))]
     pub async fn get_merged_coin_pool(&self, ai500_limit: usize) -> Result<MergedCoinPool> {
         // 1. Get AI500 data
         let ai500_top_symbols = match self.get_top_rated_coins(ai500_limit).await {

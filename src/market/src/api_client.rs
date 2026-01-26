@@ -1,14 +1,9 @@
-use anyhow::{Context, Result, anyhow};
-use reqwest::Client;
-use serde_json::Value;
 use std::time::Duration;
 
-// Assuming these exist in your project structure
-// use hook::api_hook::{SET_HTTP_CLIENT, hook_exec};
-// use hook::args;
-// use hook::http_client_hook::SetHttpClientResult;
-// use logger::info;
-use crate::types::{ExchangeInfo, Kline, PriceTicker}; // You need to ensure this struct derives Deserialize
+use crate::types::{ExchangeInfo, Kline, PriceTicker};
+use anyhow::{Context, Result, anyhow};
+use reqwest::Client;
+use serde_json::Value; // You need to ensure this struct derives Deserialize
 
 const BASE_URL: &str = "https://fapi.binance.com";
 
@@ -139,11 +134,6 @@ impl APIClient {
 }
 
 // Helper function to convert the heterogeneous JSON array to a Kline struct
-// Go logic:
-// [0]: OpenTime (float64 -> int64)
-// [1..5]: Prices/Vol (string -> float64)
-// [6]: CloseTime (float64 -> int64)
-// ...
 fn parse_kline(data: Vec<Value>) -> Result<Kline> {
     if data.len() < 11 {
         return Err(anyhow!("Invalid kline data length"));

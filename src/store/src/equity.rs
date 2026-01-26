@@ -1,12 +1,9 @@
+use std::collections::HashMap;
+
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
-use std::collections::HashMap;
-
-// ==========================================
-// Struct Definitions
-// ==========================================
 
 /// EquityStore account equity storage (for plotting return curves)
 #[derive(Clone)]
@@ -27,10 +24,6 @@ pub struct EquitySnapshot {
     pub position_count: i32,  // Position count
     pub margin_used_pct: f64, // Margin usage percentage
 }
-
-// ==========================================
-// Implementation
-// ==========================================
 
 impl EquityStore {
     pub fn new(pool: SqlitePool) -> Self {
@@ -69,9 +62,6 @@ impl EquityStore {
 
     /// Saves equity snapshot
     pub async fn save(&self, snapshot: &mut EquitySnapshot) -> Result<()> {
-        // Handle zero timestamp (In Rust, default might be UNIX_EPOCH or we just check logic)
-        // Here we assume if it looks like the epoch start, we update it, or just rely on caller.
-        // To match Go's IsZero(), we update if it's strictly the default value or very old.
         if snapshot.timestamp.timestamp() == 0 {
             snapshot.timestamp = Utc::now();
         } else {

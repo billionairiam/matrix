@@ -13,7 +13,7 @@ use ethers::utils::keccak256;
 use reqwest::{Client, Method};
 use serde_json::{Map, Value};
 use tokio::sync::RwLock;
-use tracing::info;
+use tracing::{error, info, instrument, warn};
 
 const BASE_URL: &str = "https://fapi.asterdex.com";
 
@@ -216,18 +216,9 @@ impl AsterTrader {
         let packed = abi::encode(&tokens);
         let hash = keccak256(&packed);
 
-        // Sign hash (sign_hash handles the Ethereum Signed Message prefix internally in ethers-rs if using sign_message,
-        // but here we manually construct the hash to match Go's crypto.Sign behavior on the pre-hashed message?
-        // Go: `crypto.Sign(msgHash.Bytes(), t.privateKey)` where msgHash is Prefixed.
-        // Ethers `sign_message` takes the raw message and prefixes it.
-        // We have `hash` (Keccak(packed)). We need to sign Keccak(Prefix + hash).
-        // `wallet.sign_message(H256::from(hash))` does exactly that.
-
         let signature = self.wallet.sign_message(H256::from(hash)).await?;
 
         // Ethers produces 'v' as 27/28 (EIP-155) or 0/1 depending on chainId.
-        // But the Go code manually does `sig[64] += 27` implying the raw crypto.Sign gave 0/1.
-        // `signature.v` in ethers is usually 27 or 28. Let's convert to 0x string.
         let sig_bytes = signature.to_vec();
         let sig_hex = format!("0x{}", hex::encode(sig_bytes));
 
@@ -367,6 +358,7 @@ impl AsterTrader {
 
 #[async_trait]
 impl Trader for AsterTrader {
+    #[instrument(skip(self))]
     async fn get_balance(&self) -> Result<Map<String, Value>> {
         let params = Map::new();
         let body = self
@@ -399,13 +391,13 @@ impl Trader for AsterTrader {
         }
 
         if !found_usdt {
-            info!("⚠️  USDT asset record not found!");
+            warn!("⚠️  USDT asset record not found!");
         }
 
         let positions = match self.get_positions().await {
             Ok(p) => p,
             Err(e) => {
-                info!("⚠️  Failed to get position information: {}", e);
+                warn!("⚠️  Failed to get position information: {}", e);
                 let mut fallback = Map::new();
                 fallback.insert("totalWalletBalance".into(), cross_wallet_balance.into());
                 fallback.insert("availableBalance".into(), available_balance.into());
@@ -512,6 +504,7 @@ impl Trader for AsterTrader {
         Ok(result)
     }
 
+    #[instrument(skip(self))]
     async fn open_long(&self, symbol: &str, quantity: f64, leverage: i32) -> Result<Value> {
         if let Err(e) = self.cancel_all_orders(symbol).await {
             info!("  ⚠ Failed to cancel pending orders: {}", e);
@@ -553,6 +546,7 @@ impl Trader for AsterTrader {
         self.request(Method::POST, "/fapi/v3/order", params).await
     }
 
+    #[instrument(skip(self))]
     async fn open_short(&self, symbol: &str, quantity: f64, leverage: i32) -> Result<Value> {
         if let Err(e) = self.cancel_all_orders(symbol).await {
             info!("  ⚠ Failed to cancel pending orders: {}", e);
@@ -594,6 +588,7 @@ impl Trader for AsterTrader {
         self.request(Method::POST, "/fapi/v3/order", params).await
     }
 
+    #[instrument(skip(self))]
     async fn close_long(&self, symbol: &str, mut quantity: f64) -> Result<Value> {
         if quantity == 0.0 {
             let positions = self.get_positions().await?;
@@ -651,6 +646,7 @@ impl Trader for AsterTrader {
         Ok(res)
     }
 
+    #[instrument(skip(self))]
     async fn close_short(&self, symbol: &str, mut quantity: f64) -> Result<Value> {
         if quantity == 0.0 {
             let positions = self.get_positions().await?;
@@ -717,6 +713,7 @@ impl Trader for AsterTrader {
             .map(|_| ())
     }
 
+    #[instrument(skip(self))]
     async fn set_margin_mode(&self, symbol: &str, is_cross_margin: bool) -> Result<()> {
         let margin_type = if is_cross_margin {
             "CROSSED"
@@ -858,6 +855,7 @@ impl Trader for AsterTrader {
             .map(|_| ())
     }
 
+    #[instrument(skip(self))]
     async fn cancel_stop_loss_orders(&self, symbol: &str) -> Result<()> {
         let mut params = Map::new();
         params.insert("symbol".into(), symbol.into());
@@ -919,6 +917,7 @@ impl Trader for AsterTrader {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     async fn cancel_take_profit_orders(&self, symbol: &str) -> Result<()> {
         let mut params = Map::new();
         params.insert("symbol".into(), symbol.into());
@@ -988,6 +987,7 @@ impl Trader for AsterTrader {
             .map(|_| ())
     }
 
+    #[instrument(skip(self))]
     async fn cancel_stop_orders(&self, symbol: &str) -> Result<()> {
         let mut params = Map::new();
         params.insert("symbol".into(), symbol.into());
@@ -1023,7 +1023,7 @@ impl Trader for AsterTrader {
                         );
                     }
                     Err(e) => {
-                        info!("  ⚠ Failed to cancel order {}: {}", order_id, e);
+                        error!("  ⚠ Failed to cancel order {}: {}", order_id, e);
                     }
                 }
             }

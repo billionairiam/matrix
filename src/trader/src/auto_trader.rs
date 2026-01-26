@@ -31,7 +31,7 @@ use store::store::Store;
 use store::strategy::StrategyConfig;
 use tokio::sync::{Notify, RwLock};
 use tokio::time::interval;
-use tracing::{error, info, warn};
+use tracing::{error, info, instrument, warn};
 
 #[derive(Debug, Serialize)]
 pub struct PositionResponse {
@@ -124,7 +124,7 @@ pub struct AutoTrader {
     name: String,
     exchange: String,
     ai_model: String,
-    user_id: String,
+    _user_id: String,
 
     // Components
     config: AutoTraderConfig,
@@ -159,6 +159,7 @@ pub struct AutoTrader {
 }
 
 impl AutoTrader {
+    #[instrument(skip(st))]
     pub async fn new(
         mut config: AutoTraderConfig,
         st: Arc<Option<Store>>,
@@ -277,7 +278,7 @@ impl AutoTrader {
             name: config.name.clone(),
             exchange: config.exchange.clone(),
             ai_model: config.ai_model.clone(),
-            user_id,
+            _user_id: user_id,
             config: config.clone(),
             trader: trader.into(),
             mcp_client: mcp_client.into(),
@@ -300,6 +301,7 @@ impl AutoTrader {
         })
     }
 
+    #[instrument(skip(self))]
     pub async fn run(&self) -> Result<()> {
         {
             let mut running = self.is_running.write().await;
@@ -345,6 +347,7 @@ impl AutoTrader {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     pub async fn stop(&self) {
         let mut running = self.is_running.write().await;
         if *running {
@@ -354,6 +357,7 @@ impl AutoTrader {
         }
     }
 
+    #[instrument(skip(self))]
     async fn run_cycle(&self) -> Result<()> {
         {
             let mut cc = self.call_count.write().await;
@@ -373,7 +377,7 @@ impl AutoTrader {
             ..Default::default()
         };
 
-        // 1. Risk Control Check
+        // Risk Control Check
         if let Some(stop_until) = *self.stop_until.read().await {
             if Utc::now() < stop_until {
                 let remaining = stop_until.signed_duration_since(Utc::now()).num_minutes();
@@ -385,7 +389,7 @@ impl AutoTrader {
             }
         }
 
-        // 2. Daily PnL Reset
+        // Daily PnL Reset
         {
             let mut last_reset = self.last_reset_time.write().await;
             if (Utc::now() - *last_reset).num_hours() >= 24 {
@@ -396,7 +400,7 @@ impl AutoTrader {
             }
         }
 
-        // 3. Build Context
+        // Build Context
         let mut ctx = match self.build_trading_context().await {
             Ok(c) => c,
             Err(e) => {
@@ -415,7 +419,7 @@ impl AutoTrader {
             ctx.account.total_equity, ctx.account.available_balance, ctx.account.position_count
         );
 
-        // 4. Request AI Decision
+        // Request AI Decision
         info!("🤖 Requesting AI analysis...");
         let ai_result = get_full_decision_with_strategy(
             &mut ctx,
@@ -486,7 +490,7 @@ impl AutoTrader {
     }
 
     async fn build_trading_context(&self) -> Result<Context> {
-        // 1. Account Info
+        // Account Info
         let balances = self.trader.get_balance().await?;
         let mut total_wallet_balance = 0.0;
         let mut total_unrealized_profit = 0.0;
@@ -506,7 +510,7 @@ impl AutoTrader {
 
         let total_equity = total_wallet_balance + total_unrealized_profit;
 
-        // 2. Positions
+        // Positions
         let positions = self.trader.get_positions().await?;
         let mut position_infos = Vec::new();
         let mut total_margin_used = 0.0;
@@ -582,10 +586,9 @@ impl AutoTrader {
         }
 
         let engine = (*self.strategy_engine).as_ref().unwrap();
-        // 3. Candidates
         let candidate_coins = engine.get_candidate_coins().await?;
 
-        // 4. Calculations
+        // Calculations
         let init_bal = *self.initial_balance.read().await;
         let total_pnl = total_equity - init_bal;
         let total_pnl_pct = if init_bal > 0.0 {
@@ -690,6 +693,7 @@ impl AutoTrader {
         }
     }
 
+    #[instrument(skip(self))]
     async fn execute_open_long(
         &self,
         decision: &Decision,
@@ -797,6 +801,7 @@ impl AutoTrader {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     async fn execute_open_short(
         &self,
         decision: &Decision,
@@ -910,6 +915,7 @@ impl AutoTrader {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     async fn execute_close_long(
         &self,
         decision: &Decision,
@@ -952,6 +958,7 @@ impl AutoTrader {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     async fn execute_close_short(
         &self,
         decision: &Decision,
@@ -994,6 +1001,7 @@ impl AutoTrader {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     pub async fn get_account_info(&self) -> Result<Map<String, Value>> {
         let balance = self
             .trader
@@ -1011,7 +1019,7 @@ impl AutoTrader {
         let mut total_unrealized_profit = 0.0;
         let mut available_balance = 0.0;
         let mut total_margin_used = 0.0;
-        let mut total_unrealized_pnL_calculated = 0.0;
+        let mut total_unrealized_pnl_calculated = 0.0;
         let mut mark_price = 0.0;
         let mut quantity = 0.0;
         let mut unrealized_pnl = 0.0;
@@ -1042,7 +1050,7 @@ impl AutoTrader {
 
             update("unRealizedProfit", &mut unrealized_pnl, &pos);
 
-            total_unrealized_pnL_calculated += unrealized_pnl;
+            total_unrealized_pnl_calculated += unrealized_pnl;
 
             let mut leverage = 10.0;
             update("leverage", &mut leverage, &pos);
@@ -1052,12 +1060,12 @@ impl AutoTrader {
         }
 
         // Verify unrealized P&L consistency (API value vs calculated from positions)
-        let diff = total_unrealized_profit - total_unrealized_pnL_calculated;
+        let diff = total_unrealized_profit - total_unrealized_pnl_calculated;
         if diff.abs() > 0.1 {
-            info!(
+            warn!(
                 "⚠️ Unrealized P&L inconsistency: API={:.4}, Calculated={:.4}, Diff={:.4}",
                 total_unrealized_profit,
-                total_unrealized_pnL_calculated,
+                total_unrealized_pnl_calculated,
                 diff.abs()
             );
         }
@@ -1067,7 +1075,7 @@ impl AutoTrader {
         if initial_balance > 0.0 {
             total_pn_l_pct = total_pnl / initial_balance * 100.0;
         } else {
-            info!(
+            warn!(
                 "⚠️ Initial Balance abnormal: {:.2}, cannot calculate P&L percentage",
                 initial_balance
             )
@@ -1148,6 +1156,7 @@ impl AutoTrader {
         "strategy".to_string()
     }
 
+    #[instrument(skip(self))]
     async fn run_drawdown_monitor(&self) {
         let mut ticker = interval(std::time::Duration::from_secs(60));
         info!("📊 Started position drawdown monitoring");
@@ -1177,12 +1186,13 @@ impl AutoTrader {
         self.exchange.clone()
     }
 
+    #[instrument(skip(self))]
     async fn check_position_drawdown(&self) {
         // Get current positions
         let positions = match self.trader.get_positions().await {
             Ok(p) => p,
             Err(e) => {
-                warn!("❌ Drawdown Monitor: failed to get positions: {}", e);
+                error!("❌ Drawdown Monitor: failed to get positions: {}", e);
                 return;
             }
         };
@@ -1207,13 +1217,13 @@ impl AutoTrader {
 
             let mark_price = pos.get("markPrice").and_then(|v| v.as_f64()).unwrap_or(0.0);
 
-            let mut quantity = pos
+            let mut _quantity = pos
                 .get("positionAmt")
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.0);
 
-            if quantity < 0.0 {
-                quantity = -quantity // Short position quantity is negative, convert to positive
+            if _quantity < 0.0 {
+                _quantity = -_quantity // Short position quantity is negative, convert to positive
             }
 
             // PnL Pct Calculation
@@ -1274,6 +1284,7 @@ impl AutoTrader {
         decisions
     }
 
+    #[instrument(skip(self))]
     async fn save_equity_snapshot(&self, ctx: &Context) {
         if let Some(store) = (*self.store).as_ref() {
             let mut snapshot = EquitySnapshot {
@@ -1292,6 +1303,7 @@ impl AutoTrader {
         }
     }
 
+    #[instrument(skip(self))]
     async fn save_decision(&self, mut record: DecisionRecord) -> Result<()> {
         if let Some(store) = (*self.store).as_ref() {
             {
@@ -1309,6 +1321,7 @@ impl AutoTrader {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     async fn record_and_confirm_order(
         &self,
         order_id: String,
@@ -1368,7 +1381,6 @@ impl AutoTrader {
     }
 
     pub async fn get_positions(&self) -> Result<Vec<PositionResponse>> {
-        // 获取 positions，类型推断为 Vec<Map<String, Value>>
         let positions: Vec<Map<String, Value>> = self
             .trader
             .get_positions()
@@ -1397,7 +1409,6 @@ impl AutoTrader {
 
             let mark_price = pos.get("markPrice").and_then(|v| v.as_f64()).unwrap_or(0.0);
 
-            // Go逻辑: quantity = abs(positionAmt)
             let raw_qty = pos
                 .get("positionAmt")
                 .and_then(|v| v.as_f64())
@@ -1414,22 +1425,18 @@ impl AutoTrader {
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.0);
 
-            // Go逻辑: leverage 默认为 10
             let leverage = pos
                 .get("leverage")
                 .and_then(|v| v.as_f64())
                 .map(|v| v as i32)
                 .unwrap_or(10);
 
-            // 计算 Margin Used
-            // Go: (quantity * markPrice) / float64(leverage)
             let margin_used = if leverage != 0 {
                 (quantity * mark_price) / leverage as f64
             } else {
                 0.0
             };
 
-            // 计算 P&L Percentage
             let pnl_pct = calculate_pn_l_percentage(unrealized_pnl, margin_used);
 
             result.push(PositionResponse {

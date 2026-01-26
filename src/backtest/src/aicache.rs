@@ -1,15 +1,15 @@
-use anyhow::{Context, Result, anyhow};
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
+use anyhow::{Context, Result, anyhow};
 use decision::engine::Context as EngineContext;
 use decision::engine::FullDecision;
 use decision::engine::{AccountInfo, CandidateCoin, PositionInfo};
 use market::types::Data;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CachedDecision {
@@ -57,9 +57,7 @@ impl AICache {
                     entries = disk_cache.entries;
                 }
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                // It's okay if file doesn't exist yet
-            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(e.into()),
         }
 
@@ -75,14 +73,13 @@ impl AICache {
 
     /// Get retrieves a decision from the cache.
     /// Returns (Decision, found_bool).
-    pub fn get(&self, key: &str) -> Option<(FullDecision)> {
+    pub fn get(&self, key: &str) -> Option<FullDecision> {
         if key.is_empty() {
             return None;
         }
 
         let map = self.entries.read().unwrap();
         if let Some(entry) = map.get(key) {
-            // Rust Clone is deep by default for these structs, equivalent to the JSON marshal/unmarshal cycle
             return Some(entry.decision.clone());
         }
 
@@ -105,7 +102,7 @@ impl AICache {
         {
             let mut map = self.entries.write().unwrap();
             map.insert(key.to_string(), entry);
-        } // Lock released here
+        }
 
         self.save()
     }
@@ -140,8 +137,6 @@ fn write_file_atomic(path: &Path, data: &[u8]) -> Result<()> {
 
 /// Computes a deterministic cache key based on the context.
 pub fn compute_cache_key(ctx: &EngineContext, variant: &str, ts: i64) -> Result<String> {
-    // We define a struct that matches the Go anonymous struct layout exactly
-    // to ensure the SHA256 hash is identical (assuming field sorting is handled consistently).
     #[derive(Serialize)]
     struct Payload<'a> {
         variant: &'a str,

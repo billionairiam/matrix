@@ -1,13 +1,13 @@
-use anyhow::{Context, Result};
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-use sqlx::{Row, SqlitePool};
 use std::sync::Arc;
 
 use super::CryptoProvider;
 use super::ai_model::AIModel;
 use super::exchange::Exchange;
 use super::strategy::Strategy;
+use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use sqlx::{Row, SqlitePool};
 
 /// Trader trader configuration
 #[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]

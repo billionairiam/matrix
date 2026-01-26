@@ -11,7 +11,7 @@ use hyperliquid_rust_sdk::{
 };
 use serde_json::{Map, Value, json};
 use tokio::sync::RwLock;
-use tracing::{info, warn};
+use tracing::{info, instrument, warn};
 
 use super::Trader;
 
@@ -26,6 +26,7 @@ pub struct HyperliquidTrader {
 
 impl HyperliquidTrader {
     /// Creates a new Hyperliquid trader instance
+    #[instrument(skip(private_key_hex))]
     pub async fn new(private_key_hex: &str, wallet_addr_str: &str, testnet: bool) -> Result<Self> {
         // Remove 0x prefix if present
         let private_key_clean = private_key_hex.trim_start_matches("0x");
@@ -71,8 +72,6 @@ impl HyperliquidTrader {
         }
 
         // Initialize Clients
-        // Note: Actual initialization depends on the specific Rust SDK version used.
-        // This assumes a standard setup similar to the Go SDK.
         let exchange = ExchangeClient::new(None, wallet.clone(), Some(api_url), None, None)
             .await
             .map_err(|e| anyhow!("Failed to create exchange client: {:?}", e))?;
@@ -136,6 +135,7 @@ impl HyperliquidTrader {
         symbol.strip_suffix("USDT").unwrap_or(symbol).to_string()
     }
 
+    #[instrument(skip(self))]
     async fn get_sz_decimals(&self, coin: &str) -> u32 {
         let meta_guard = self.meta.read().await;
         if let Some(meta) = &*meta_guard {
@@ -145,7 +145,7 @@ impl HyperliquidTrader {
                 }
             }
         }
-        info!("⚠️ Precision not found for {}, using default 4", coin);
+        warn!("⚠️ Precision not found for {}, using default 4", coin);
         4
     }
 
@@ -183,10 +183,11 @@ impl HyperliquidTrader {
 #[async_trait]
 impl Trader for HyperliquidTrader {
     /// Gets account balance
+    #[instrument(skip(self))]
     async fn get_balance(&self) -> Result<Map<String, Value>> {
         info!("🔄 Calling Hyperliquid API to get account balance...");
 
-        // 1. Get Spot Balance
+        // Get Spot Balance
         let mut spot_usdc_balance = 0.0;
         match self.info.user_token_balances(self.wallet_addr).await {
             Ok(spot_state) => {
@@ -198,17 +199,17 @@ impl Trader for HyperliquidTrader {
                     }
                 }
             }
-            Err(e) => info!("⚠️ Failed to query Spot balance: {:?}", e),
+            Err(e) => warn!("⚠️ Failed to query Spot balance: {:?}", e),
         }
 
-        // 2. Get Perp user state
+        // Get Perp user state
         let account_state = self
             .info
             .user_state(self.wallet_addr)
             .await
             .map_err(|e| anyhow!("Failed to get account information: {:?}", e))?;
 
-        // 3. Select summary based on margin mode
+        // Select summary based on margin mode
         let is_cross = self.is_cross_margin.load(Ordering::Relaxed);
         let (account_value, total_margin_used): (f64, f64) = if is_cross {
             (
@@ -247,7 +248,7 @@ impl Trader for HyperliquidTrader {
 
         let wallet_balance_without_unrealized = account_value - total_unrealized_pnl;
 
-        // 4. Use Withdrawable field
+        // Use Withdrawable field
         let mut available_balance = account_state.withdrawable.parse().unwrap_or(0.0);
 
         // Fallback
@@ -340,6 +341,7 @@ impl Trader for HyperliquidTrader {
     }
 
     /// Opens a long position
+    #[instrument(skip(self))]
     async fn open_long(&self, symbol: &str, quantity: f64, leverage: i32) -> Result<Value> {
         self.cancel_all_orders(symbol)
             .await
@@ -483,6 +485,7 @@ impl Trader for HyperliquidTrader {
     }
 
     /// Closes a short position
+    #[instrument(skip(self))]
     async fn close_short(&self, symbol: &str, mut quantity: f64) -> Result<Value> {
         if quantity == 0.0 {
             let positions = self.get_positions().await?;
@@ -539,6 +542,7 @@ impl Trader for HyperliquidTrader {
     }
 
     /// Sets leverage
+    #[instrument(skip(self))]
     async fn set_leverage(&self, symbol: &str, leverage: i32) -> Result<()> {
         let coin = self.convert_symbol_to_hyperliquid(symbol);
         let is_cross = self.is_cross_margin.load(Ordering::Relaxed);
@@ -656,17 +660,20 @@ impl Trader for HyperliquidTrader {
     }
 
     // Since API can't distinguish TP/SL easily, we reuse logic
+    #[instrument(skip(self))]
     async fn cancel_stop_loss_orders(&self, symbol: &str) -> Result<()> {
-        info!("  ⚠️ Hyperliquid cannot distinguish stop/limit, cancelling all for symbol");
+        warn!("  ⚠️ Hyperliquid cannot distinguish stop/limit, cancelling all for symbol");
         self.cancel_all_orders(symbol).await
     }
 
+    #[instrument(skip(self))]
     async fn cancel_take_profit_orders(&self, symbol: &str) -> Result<()> {
-        info!("  ⚠️ Hyperliquid cannot distinguish stop/limit, cancelling all for symbol");
+        warn!("  ⚠️ Hyperliquid cannot distinguish stop/limit, cancelling all for symbol");
         self.cancel_all_orders(symbol).await
     }
 
     /// Cancel orders
+    #[instrument(skip(self))]
     async fn cancel_all_orders(&self, symbol: &str) -> Result<()> {
         let coin = self.convert_symbol_to_hyperliquid(symbol);
         let open_orders = self

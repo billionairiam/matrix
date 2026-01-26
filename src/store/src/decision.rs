@@ -3,10 +3,6 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
 
-// ==========================================
-// Struct Definitions
-// ==========================================
-
 /// DecisionStore decision log storage
 #[derive(Clone)]
 pub struct DecisionStore {
@@ -34,9 +30,6 @@ pub struct DecisionRecord {
     pub error_message: String,
     pub ai_request_duration_ms: i64,
 
-    // The following fields are in the Go struct but logic suggests
-    // they are populated elsewhere or deprecated in this store.
-    // We keep them for API compatibility.
     #[serde(default)]
     pub account_state: Option<AccountSnapshot>,
     #[serde(default)]

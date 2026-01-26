@@ -11,7 +11,6 @@ chrono.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
-log.workspace = true
 url.workspace = true
 reqwest.workspace = true
 dashmap.workspace = true

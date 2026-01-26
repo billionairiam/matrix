@@ -34,7 +34,7 @@ use chrono::Utc;
 use crypto::crypto::EncryptedPayload;
 use futures::future::select_ok;
 use if_addrs::get_if_addrs;
-use tracing::{error, info, warn};
+use tracing::{error, info, warn, instrument, debug};
 use manager::trader_manager::TraderManager;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -49,7 +49,6 @@ use validator::Validate;
 
 #[derive(Deserialize, Debug)]
 pub struct UpdateExchangeConfigRequest {
-    // Matches Go: map[string]ExchangeData
     pub exchanges: HashMap<String, ExchangeUpdateData>,
 }
 
@@ -107,7 +106,6 @@ pub struct ModelUpdateData {
 
 #[derive(Deserialize, Debug)]
 pub struct UpdateModelConfigRequest {
-    // Go: req.Models (map[string]ModelData)
     #[serde(rename = "models")]
     pub models: HashMap<String, ModelUpdateData>,
 }
@@ -118,26 +116,23 @@ pub struct SafeModelConfig {
     pub name: String,
     pub provider: String,
     pub enabled: bool,
-    // Using snake_case for JSON keys is standard in Rust/Serde.
-    // If you need to match Go's specific JSON tags (e.g. camelCase),
-    // you can use #[serde(rename = "customAPIURL")]
     pub custom_api_url: String,
     pub custom_model_name: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct ClosePositionRequest {
     pub symbol: String,
     pub side: String, // Expecting "LONG" or "SHORT"
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct UpdateTraderPromptRequest {
     pub custom_prompt: String,
     pub override_base_prompt: bool,
 }
 
-#[derive(Deserialize, Validate)]
+#[derive(Deserialize, Validate, Debug)]
 pub struct CreateTraderRequest {
     #[validate(length(min = 1, message = "Name is required"))]
     pub name: String,
@@ -167,7 +162,7 @@ pub struct CreateTraderRequest {
 
 // UpdateTraderRequest
 // Using Option<T> allows us to distinguish between "provided" and "missing" fields
-#[derive(Deserialize, Validate)]
+#[derive(Deserialize, Validate, Debug)]
 pub struct UpdateTraderRequest {
     #[validate(length(min = 1, message = "Name is required"))]
     pub name: String,
@@ -285,6 +280,7 @@ impl Server {
         Self { port, state }
     }
 
+    #[instrument(skip(self))]
     pub async fn run(self) -> Result<()> {
         let cors = CorsLayer::new()
             .allow_origin(Any)
@@ -309,7 +305,6 @@ impl Server {
     }
 
     fn setup_routes(&self) -> Router {
-        // 公共路由组
         let public_routes = Router::new()
             // Health check
             .route("/health", any(handle_health))
@@ -318,7 +313,7 @@ impl Server {
             .route("/supported-exchanges", get(handle_get_supported_exchanges))
             // System config
             .route("/config", get(handle_get_system_config))
-            // Crypto related (调用 handler 中的方法)
+            // Crypto related
             .route("/crypto/public-key", get(handle_crypto_public_key))
             .route("/crypto/decrypt", post(handle_crypto_decrypt))
             // System prompt template management
@@ -355,7 +350,7 @@ impl Server {
             .route("/backtest/decisions", get(handle_backtest_decisions))
             .route("/backtest/export", get(handle_backtest_export));
 
-        // 受保护路由组 (需要 Auth 中间件)
+        // Protected routes
         let protected_routes = Router::new()
             .route("/logout", post(handle_logout))
             .route("/server-ip", get(handle_get_server_ip))
@@ -410,10 +405,8 @@ impl Server {
             .route("/decisions", get(handle_decisions))
             .route("/decisions/latest", get(handle_latest_decisions))
             .route("/statistics", get(handle_statistics))
-            // 应用 Auth 中间件
             .layer(middleware::from_fn(auth_middleware));
 
-        // 组合 API
         Router::new()
             .nest("/api", public_routes.merge(protected_routes))
             .with_state(self.state.clone())
@@ -567,6 +560,7 @@ async fn handle_crypto_public_key(State(state): State<AppState>) -> impl IntoRes
     }))
 }
 
+#[instrument(skip(state, payload))]
 async fn handle_crypto_decrypt(
     State(state): State<AppState>,
     Json(payload): Json<crypto::crypto::EncryptedPayload>,
@@ -716,6 +710,7 @@ async fn handle_top_traders(State(state): State<AppState>) -> impl IntoResponse 
 
 // get_trader_from_query
 // Helper function to resolve trader_id from query or fallback to default
+#[instrument(skip(state))]
 pub async fn get_trader_from_query(
     state: &AppState,
     user_id: &str,
@@ -839,7 +834,6 @@ async fn get_equity_history_for_traders(trader_ids: &Vec<String>, state: &AppSta
                         json!({
                             "timestamp":    snap.timestamp,
                             "total_equity": snap.total_equity,
-                            // 注意 Go 代码映射关系: total_pnl -> snap.UnrealizedPnL
                             "total_pnl":    snap.unrealized_pnl,
                             "balance":      snap.balance,
                         })
@@ -849,8 +843,6 @@ async fn get_equity_history_for_traders(trader_ids: &Vec<String>, state: &AppSta
                 histories.insert(trader_id.clone(), Value::Array(history_list));
             }
             Err(e) => {
-                // 4. 记录错误但不中断循环
-                // 对应 Go: errors[traderID] = fmt.Sprintf(...)
                 errors.insert(
                     trader_id.clone(),
                     json!(format!("Failed to get historical data: {:?}", e)),
@@ -891,7 +883,6 @@ async fn handle_get_public_trader_config(
     let trader = match state.trader_manager.get_trader(&trader_id).await {
         Ok(t) => t,
         Err(_) => {
-            // 对应 Go: c.JSON(http.StatusNotFound, ...)
             return (
                 StatusCode::NOT_FOUND,
                 Json(json!({ "error": "Trader does not exist" })),
@@ -902,10 +893,10 @@ async fn handle_get_public_trader_config(
 
     let status = trader.get_status().await.unwrap();
     let result = json!({
-        "trader_id":   trader.get_id(),       // 对应 trader.GetID()
-        "trader_name": trader.get_name(),     // 对应 trader.GetName()
-        "ai_model":    trader.get_ai_model(), // 对应 trader.GetAIModel()
-        "exchange":    trader.get_exchange(), // 对应 trader.GetExchange()
+        "trader_id":   trader.get_id(),
+        "trader_name": trader.get_name(),
+        "ai_model":    trader.get_ai_model(),
+        "exchange":    trader.get_exchange(),
 
         "is_running":  status.get("is_running"),
         "ai_provider": status.get("ai_provider"),
@@ -1088,7 +1079,7 @@ async fn handle_verify_otp(
 
     let token = match auth::jwt_auth::generate_jwt(&user.id, &user.email) {
         Ok(t) => t,
-        Err(e) => {
+        Err(_e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": "Failed to generate token" })),
@@ -1410,24 +1401,21 @@ pub async fn handle_get_trader_config(
 
     let trader_config = full_cfg.trader;
 
-    // 3. Determine Real-time Running Status
+    // Determine Real-time Running Status
     // Default to database status
     let mut is_running = trader_config.is_running;
 
     // Check memory manager for override
-    // Corresponding Go: if at, err := s.traderManager.GetTrader(traderID); err == nil
     if let Ok(active_trader) = state.trader_manager.get_trader(&trader_id).await {
         // Get status map/json
         let status = active_trader.get_status().await.unwrap();
 
-        // Corresponding Go: if running, ok := status["is_running"].(bool); ok
         if let Some(running) = status.get("is_running").and_then(|v| v.as_bool()) {
             is_running = running;
         }
     }
 
     // 4. Construct Response
-    // Using json! macro to map fields exactly as in the Go version
     let result = json!({
         "trader_id":             trader_config.id,
         "trader_name":           trader_config.name,
@@ -1449,6 +1437,7 @@ pub async fn handle_get_trader_config(
     Json(result).into_response()
 }
 
+#[instrument(skip(state))]
 async fn handle_create_trader(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
@@ -1511,14 +1500,14 @@ async fn handle_create_trader(
 
     let mut actual_balance = req.initial_balance;
 
-    // 6.1 Get Exchange Configs
+    // Get Exchange Configs
     match state.store.exchange().await.list(&user.user_id).await {
         Err(e) => warn!(
             "⚠️ Failed to get exchange config, using user input: {:?}",
             e
         ),
         Ok(exchanges) => {
-            // 6.2 Find matching exchange
+            // Find matching exchange
             if let Some(exchange_cfg) = exchanges.iter().find(|ex| ex.id == req.exchange_id) {
                 if !exchange_cfg.enabled {
                     warn!(
@@ -1526,7 +1515,7 @@ async fn handle_create_trader(
                         req.exchange_id
                     );
                 } else {
-                    // 6.3 Create Temporary Trader Client
+                    // Create Temporary Trader Client
                     // Note: This logic depends on your `trader` module implementation.
                     // Assuming create_temp_trader returns Box<dyn TraderTrait>
                     let temp_trader_result =
@@ -1535,11 +1524,11 @@ async fn handle_create_trader(
                     match temp_trader_result {
                         Err(e) => warn!("⚠️ Failed to create temp trader: {:?}", e),
                         Ok(client) => {
-                            // 6.4 Query Balance
+                            // Query Balance
                             match client.get_balance().await {
                                 Err(e) => warn!("⚠️ Failed to query balance: {:?}", e),
                                 Ok(balance_info) => {
-                                    // 6.5 Extract Available Balance
+                                    // Extract Available Balance
                                     // Try different keys: availableBalance, available_balance, totalWalletBalance, balance
                                     // Using serde_json::Value helper
                                     let found_balance = balance_info
@@ -1574,8 +1563,8 @@ async fn handle_create_trader(
         }
     }
 
-    // 7. Create Trader Entity (DB Record)
-    info!("🔧 DEBUG: Creating trader config ID={}", trader_id);
+    // Create Trader Entity (DB Record)
+    debug!("🔧: Creating trader config ID={}", trader_id);
     let trader_record = store::trader::Trader {
         id: trader_id.clone(),
         user_id: user.user_id.clone(),
@@ -1599,7 +1588,7 @@ async fn handle_create_trader(
         updated_at: Utc::now(),
     };
 
-    // 8. Save to DB
+    // Save to DB
     if let Err(e) = state.store.trader().await.create(&trader_record).await {
         error!("❌ Failed to create trader: {:?}", e);
         return (
@@ -1609,7 +1598,7 @@ async fn handle_create_trader(
             .into_response();
     }
 
-    // 9. Sync with TraderManager
+    // Sync with TraderManager
     info!("🔧 DEBUG: Syncing with TraderManager");
     if let Err(e) = state
         .trader_manager
@@ -1666,13 +1655,14 @@ async fn create_temp_trader_client(
 }
 
 // handle_update_trader Update trader configuration
+#[instrument(skip(state))]
 pub async fn handle_update_trader(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
     Path(trader_id): Path<String>,
     Json(req): Json<UpdateTraderRequest>,
 ) -> impl IntoResponse {
-    // 1. Validation
+    // Validation
     if let Err(e) = req.validate() {
         return (
             StatusCode::BAD_REQUEST,
@@ -1681,11 +1671,10 @@ pub async fn handle_update_trader(
             .into_response();
     }
 
-    // 2. Check if trader exists and belongs to current user
-    // Corresponding Go: s.store.Trader().List(userID)
+    // Check if trader exists and belongs to current user
     let traders = match state.store.trader().await.list(&user.user_id).await {
         Ok(t) => t,
-        Err(e) => {
+        Err(_e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": "Failed to get trader list" })),
@@ -1695,7 +1684,6 @@ pub async fn handle_update_trader(
     };
 
     // Find the specific trader
-    // Corresponding Go: for loop + if t.ID == traderID
     let existing_trader = match traders.iter().find(|t| t.id == trader_id) {
         Some(t) => t,
         None => {
@@ -1742,7 +1730,7 @@ pub async fn handle_update_trader(
         _ => existing_trader.strategy_id.clone(),
     };
 
-    // 4. Construct the updated record
+    // Construct the updated record
     let trader_record = store::trader::Trader {
         id: trader_id.clone(),
         user_id: user.user_id.clone(),
@@ -1777,7 +1765,7 @@ pub async fn handle_update_trader(
         use_oi_top: false,
     };
 
-    // 5. Update Database
+    // Update Database
     if let Err(e) = state.store.trader().await.update(&trader_record).await {
         error!("Failed to update trader: {:?}", e);
         return (
@@ -1787,14 +1775,13 @@ pub async fn handle_update_trader(
             .into_response();
     }
 
-    // 6. Reload into Memory
+    // Reload into Memory
     if let Err(e) = state
         .trader_manager
         .load_user_traders_from_store(&state.store, &user.user_id)
         .await
     {
         info!("⚠️ Failed to reload user traders into memory: {:?}", e);
-        // Do not return error here, update was successful
     }
 
     info!(
@@ -1816,6 +1803,7 @@ pub async fn handle_update_trader(
 }
 
 // handle_delete_trader Delete trader
+#[instrument(skip(state))]
 pub async fn handle_delete_trader(
     State(state): State<AppState>,
     // Extract user_id from middleware
@@ -1832,14 +1820,12 @@ pub async fn handle_delete_trader(
             .into_response();
     }
 
-    // 2. If trader is running, stop it first
-    // Corresponding Go: if trader, err := s.traderManager.GetTrader(traderID); err == nil
+    // If trader is running, stop it first
     if let Ok(active_trader) = state.trader_manager.get_trader(&trader_id).await {
         // Get real-time status
         let status = active_trader.get_status().await.unwrap_or_default();
 
         // Check if running
-        // Corresponding Go: if isRunning, ok := status["is_running"].(bool); ok && isRunning
         let is_running = status
             .get("is_running")
             .and_then(|v| v.as_bool())
@@ -1861,14 +1847,13 @@ pub async fn handle_delete_trader(
 }
 
 // handle_start_trader Start trader
+#[instrument(skip(state))]
 pub async fn handle_start_trader(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
     Path(trader_id): Path<String>,
 ) -> impl IntoResponse {
-    // 1. Verify trader belongs to current user
-    // Corresponding Go: s.store.Trader().GetFullConfig(userID, traderID)
-    // We fetch this early to verify permissions, but we might need it again for error diagnostics later.
+    // Verify trader belongs to current user
     let full_config_result = state
         .store
         .trader()
@@ -1884,12 +1869,11 @@ pub async fn handle_start_trader(
             .into_response();
     }
 
-    // 2. Try to get Trader from Memory
-    // Corresponding Go: s.traderManager.GetTrader(traderID)
+    // Try to get Trader from Memory
     let trader = match state.trader_manager.get_trader(&trader_id).await {
         Ok(t) => t,
         Err(_) => {
-            // 3. Trader not in memory, try loading from database
+            // Trader not in memory, try loading from database
             info!("🔄 Trader {} not in memory, trying to load...", trader_id);
 
             if let Err(e) = state
@@ -1905,13 +1889,11 @@ pub async fn handle_start_trader(
                     .into_response();
             }
 
-            // 4. Try to get trader again
+            // Try to get trader again
             match state.trader_manager.get_trader(&trader_id).await {
                 Ok(t) => t,
                 Err(_) => {
-                    // 5. Detailed Error Diagnostics
-                    // Logic: Check why it failed to load (missing strategy/model/exchange?)
-                    // We unwrap full_config_result here safely because we checked is_err() at step 1
+                    // Detailed Error Diagnostics
                     let full_cfg = full_config_result.unwrap();
 
                     // Check Strategy
@@ -1966,7 +1948,7 @@ pub async fn handle_start_trader(
         }
     };
 
-    // 6. Check if trader is already running
+    // Check if trader is already running
     let status = trader.get_status().await.unwrap_or_default();
     let is_running = status
         .get("is_running")
@@ -1981,7 +1963,7 @@ pub async fn handle_start_trader(
             .into_response();
     }
 
-    // 7. Start trader (Background Task)
+    // Start trader (Background Task)
     // We clone the Arc<Trader> to move it into the spawned task
     let trader_clone = trader.clone();
     let trader_name = trader.get_name(); // Assuming get_name returns String or &str (needs to be owned for logging inside spawn if using String)
@@ -1996,8 +1978,7 @@ pub async fn handle_start_trader(
         }
     });
 
-    // 8. Update running status in database
-    // Corresponding Go: s.store.Trader().UpdateStatus(userID, traderID, true)
+    // Update running status in database
     if let Err(e) = state
         .store
         .trader()
@@ -2014,13 +1995,13 @@ pub async fn handle_start_trader(
 }
 
 // handle_stop_trader Stop trader
+#[instrument(skip(state))]
 pub async fn handle_stop_trader(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
     Path(trader_id): Path<String>,
 ) -> impl IntoResponse {
-    // 1. Verify trader belongs to current user
-    // Corresponding Go: s.store.Trader().GetFullConfig(userID, traderID)
+    // Verify trader belongs to current user
     if let Err(_) = state
         .store
         .trader()
@@ -2035,8 +2016,7 @@ pub async fn handle_stop_trader(
             .into_response();
     }
 
-    // 2. Get active trader instance from memory
-    // Corresponding Go: s.traderManager.GetTrader(traderID)
+    // Get active trader instance from memory
     let trader = match state.trader_manager.get_trader(&trader_id).await {
         Ok(t) => t,
         Err(_) => {
@@ -2048,7 +2028,7 @@ pub async fn handle_stop_trader(
         }
     };
 
-    // 3. Check if trader is running
+    // Check if trader is running
     let status = trader.get_status().await.unwrap_or_default();
     let is_running = status
         .get("is_running")
@@ -2063,13 +2043,10 @@ pub async fn handle_stop_trader(
             .into_response();
     }
 
-    // 4. Stop trader
-    // Corresponding Go: trader.Stop()
-    // Assuming stop() is an async method that signals the background task to cease
+    // Stop trader
     trader.stop().await;
 
-    // 5. Update running status in database
-    // Corresponding Go: s.store.Trader().UpdateStatus(userID, traderID, false)
+    // Update running status in database
     if let Err(e) = state
         .store
         .trader()
@@ -2086,13 +2063,14 @@ pub async fn handle_stop_trader(
 }
 
 // handle_update_trader_prompt Update trader custom prompt
+#[instrument(skip(state))]
 pub async fn handle_update_trader_prompt(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
     Path(trader_id): Path<String>,
     Json(req): Json<UpdateTraderPromptRequest>,
 ) -> impl IntoResponse {
-    // 1. Update database
+    // Update database
     if let Err(e) = state
         .store
         .trader()
@@ -2113,7 +2091,7 @@ pub async fn handle_update_trader_prompt(
             .into_response();
     }
 
-    // 2. If trader is in memory, update its custom prompt and override settings
+    // If trader is in memory, update its custom prompt and override settings
     if let Ok(active_trader) = state.trader_manager.get_trader(&trader_id).await {
         // Update memory state
         // Assuming your Trader struct has thread-safe setters (e.g., using RwLock internally)
@@ -2130,7 +2108,7 @@ pub async fn handle_update_trader_prompt(
         );
     }
 
-    // 3. Return success
+    // Return success
     (
         StatusCode::OK,
         Json(json!({ "message": "Custom prompt updated" })),
@@ -2139,6 +2117,7 @@ pub async fn handle_update_trader_prompt(
 }
 
 // handle_sync_balance Sync exchange balance to initial_balance
+#[instrument(skip(state))]
 pub async fn handle_sync_balance(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
@@ -2149,8 +2128,7 @@ pub async fn handle_sync_balance(
         user.user_id, trader_id
     );
 
-    // 1. Get trader configuration from database
-    // Corresponding Go: s.store.Trader().GetFullConfig(userID, traderID)
+    // Get trader configuration from database
     let full_config = match state
         .store
         .trader()
@@ -2170,7 +2148,7 @@ pub async fn handle_sync_balance(
 
     let trader_config = full_config.trader;
 
-    // 2. Validate Exchange
+    // Validate Exchange
     let exchange_cfg = match full_config.exchange {
         Some(ex) if ex.enabled => ex,
         _ => {
@@ -2182,7 +2160,7 @@ pub async fn handle_sync_balance(
         }
     };
 
-    // 3. Create temporary trader client
+    // Create temporary trader client
     // We use a helper function to abstract the matching logic
     let temp_trader_result =
         create_temp_trader_client(&trader_config.exchange_id, &exchange_cfg).await;
@@ -2199,8 +2177,7 @@ pub async fn handle_sync_balance(
         }
     };
 
-    // 4. Query actual balance
-    // Corresponding Go: tempTrader.GetBalance()
+    // Query actual balance
     let balance_info = match client.get_balance().await {
         Ok(info) => info,
         Err(e) => {
@@ -2213,8 +2190,7 @@ pub async fn handle_sync_balance(
         }
     };
 
-    // 5. Extract available balance
-    // Logic: Try 'available_balance' -> 'availableBalance' -> 'balance'
+    // Extract available balance
     let actual_balance_opt = balance_info
         .get("available_balance")
         .or(balance_info.get("availableBalance"))
@@ -2236,9 +2212,6 @@ pub async fn handle_sync_balance(
 
     let old_balance = trader_config.initial_balance;
 
-    // 6. ✅ Option C: Smart balance change detection
-    // changePercent := ((actualBalance - oldBalance) / oldBalance) * 100
-    // Prevent division by zero if old_balance is 0
     let change_percent = if old_balance != 0.0 {
         ((actual_balance - old_balance) / old_balance) * 100.0
     } else {
@@ -2256,8 +2229,7 @@ pub async fn handle_sync_balance(
         actual_balance, old_balance, change_percent
     );
 
-    // 7. Update initial_balance in database
-    // Corresponding Go: s.store.Trader().UpdateInitialBalance(...)
+    // Update initial_balance in database
     if let Err(e) = state
         .store
         .trader()
@@ -2273,7 +2245,7 @@ pub async fn handle_sync_balance(
             .into_response();
     }
 
-    // 8. Reload traders into memory
+    // Reload traders into memory
     if let Err(e) = state
         .trader_manager
         .load_user_traders_from_store(&state.store, &user.user_id)
@@ -2302,13 +2274,14 @@ pub async fn handle_sync_balance(
 }
 
 // handle_close_position One-click close position
+#[instrument(skip(state))]
 pub async fn handle_close_position(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
     Path(trader_id): Path<String>,
     Json(req): Json<ClosePositionRequest>,
 ) -> impl IntoResponse {
-    // 1. Validate Input
+    // Validate Input
     if req.symbol.trim().is_empty() || req.side.trim().is_empty() {
         return (
             StatusCode::BAD_REQUEST,
@@ -2332,7 +2305,7 @@ pub async fn handle_close_position(
         user.user_id, trader_id, req.symbol, side_upper
     );
 
-    // 2. Get configuration from database
+    // Get configuration from database
     let full_config = match state
         .store
         .trader()
@@ -2352,7 +2325,7 @@ pub async fn handle_close_position(
 
     let trader_config = full_config.trader;
 
-    // 3. Validate Exchange
+    // Validate Exchange
     let exchange_cfg = match full_config.exchange {
         Some(ex) if ex.enabled => ex,
         _ => {
@@ -2364,9 +2337,8 @@ pub async fn handle_close_position(
         }
     };
 
-    // 4. Create temporary trader client
+    // Create temporary trader client
     // We instantiate the specific client based on the exchange ID
-    // Corresponds to the big switch statement in Go
     let trader_client_result =
         create_temp_trader_client(&trader_config.exchange_id, &exchange_cfg).await;
 
@@ -2382,7 +2354,7 @@ pub async fn handle_close_position(
         }
     };
 
-    // 5. Execute close position operation
+    // Execute close position operation
     let result_output: anyhow::Result<Value>;
 
     // 0.0 usually means "close all" in these API wrappers, matching the Go code's `0`
@@ -2425,13 +2397,14 @@ pub async fn handle_close_position(
 }
 
 // handle_get_model_configs Get AI model configurations
+#[instrument(skip(state))]
 pub async fn handle_get_model_configs(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
 ) -> impl IntoResponse {
     info!("🔍 Querying AI model configs for user {}", user.user_id);
 
-    // 1. Get models from database
+    // Get models from database
     let models = match state.store.ai_model().await.list(&user.user_id).await {
         Ok(m) => m,
         Err(e) => {
@@ -2446,7 +2419,7 @@ pub async fn handle_get_model_configs(
 
     info!("✅ Found {} AI model configs", models.len());
 
-    // 2. Convert to safe response structure
+    // Convert to safe response structure
     // Rust's functional style map() is often cleaner than a for-loop for simple transformations
     let safe_models: Vec<SafeModelConfig> = models
         .into_iter()
@@ -2464,22 +2437,23 @@ pub async fn handle_get_model_configs(
         })
         .collect();
 
-    // 3. Return JSON response
+    // Return JSON response
     Json(safe_models).into_response()
 }
 
 // handle_update_model_configs Update AI model configurations (encrypted data only)
+#[instrument(skip(state))]
 pub async fn handle_update_model_configs(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
     // Use Bytes to read raw body first
     body: Bytes,
 ) -> impl IntoResponse {
-    // 1. Parse encrypted payload
+    // Parse encrypted payload
     let encrypted_payload: EncryptedPayload = match serde_json::from_slice(&body) {
         Ok(p) => p,
         Err(e) => {
-            info!("❌ Failed to parse encrypted payload: {:?}", e);
+            error!("❌ Failed to parse encrypted payload: {:?}", e);
             return (
                 StatusCode::BAD_REQUEST,
                 Json(json!({ "error": "Invalid request format, encrypted transmission required" })),
@@ -2488,9 +2462,9 @@ pub async fn handle_update_model_configs(
         }
     };
 
-    // 2. Verify encrypted data (Check WrappedKey)
+    // Verify encrypted data (Check WrappedKey)
     if encrypted_payload.wrapped_key.is_empty() {
-        info!("❌ Detected unencrypted request (UserID: {})", user.user_id);
+        error!("❌ Detected unencrypted request (UserID: {})", user.user_id);
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({
@@ -2501,9 +2475,7 @@ pub async fn handle_update_model_configs(
         ).into_response();
     }
 
-    // 3. Decrypt data
-    // Corresponding Go: s.cryptoHandler.cryptoService.DecryptSensitiveData(&encryptedPayload)
-    // Assuming decrypt_sensitive_data returns Result<String, Error>
+    // Decrypt data
     let decrypted_json_str = match state
         .crypto_handler
         .crypto_service
@@ -2511,7 +2483,7 @@ pub async fn handle_update_model_configs(
     {
         Ok(s) => s,
         Err(e) => {
-            info!(
+            error!(
                 "❌ Failed to decrypt model config (UserID: {}): {:?}",
                 user.user_id, e
             );
@@ -2523,12 +2495,11 @@ pub async fn handle_update_model_configs(
         }
     };
 
-    // 4. Parse decrypted data
-    // Corresponding Go: json.Unmarshal([]byte(decrypted), &req)
+    // Parse decrypted data
     let req: UpdateModelConfigRequest = match serde_json::from_str(&decrypted_json_str) {
         Ok(r) => r,
         Err(e) => {
-            info!("❌ Failed to parse decrypted data: {:?}", e);
+            error!("❌ Failed to parse decrypted data: {:?}", e);
             return (
                 StatusCode::BAD_REQUEST,
                 Json(json!({ "error": "Failed to parse decrypted data" })),
@@ -2539,8 +2510,7 @@ pub async fn handle_update_model_configs(
 
     info!("🔓 Decrypted model config data (UserID: {})", user.user_id);
 
-    // 5. Update each model's configuration
-    // Corresponding Go: for modelID, modelData := range req.Models
+    // Update each model's configuration
     for (model_id, model_data) in &req.models {
         // Corresponding Go: s.store.AIModel().Update(...)
         if let Err(e) = state
@@ -2565,15 +2535,13 @@ pub async fn handle_update_model_configs(
         }
     }
 
-    // 6. Reload traders
-    // Corresponding Go: s.traderManager.LoadUserTradersFromStore(...)
+    // Reload traders
     if let Err(e) = state
         .trader_manager
         .load_user_traders_from_store(&state.store, &user.user_id)
         .await
     {
         info!("⚠️ Failed to reload user traders into memory: {:?}", e);
-        // Don't return error
     }
 
     // but we can assume req derives Debug.
@@ -2587,13 +2555,14 @@ pub async fn handle_update_model_configs(
 }
 
 // handle_get_exchange_configs Get exchange configurations
+#[instrument(skip(state))]
 pub async fn handle_get_exchange_configs(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
 ) -> impl IntoResponse {
     info!("🔍 Querying exchange configs for user {}", user.user_id);
 
-    // 1. Get exchanges from database
+    // Get exchanges from database
     let exchanges = match state.store.exchange().await.list(&user.user_id).await {
         Ok(exs) => exs,
         Err(e) => {
@@ -2608,9 +2577,7 @@ pub async fn handle_get_exchange_configs(
 
     info!("✅ Found {} exchange configs", exchanges.len());
 
-    // 2. Convert to safe response structure
-    // We map the DB entity to the Safe struct, automatically excluding
-    // fields like api_key, secret_key, etc., because they aren't in SafeExchangeConfig.
+    // Convert to safe response structure
     let safe_exchanges: Vec<SafeExchangeConfig> = exchanges
         .into_iter()
         .map(|ex| {
@@ -2627,11 +2594,12 @@ pub async fn handle_get_exchange_configs(
         })
         .collect();
 
-    // 3. Return JSON response
+    // Return JSON response
     Json(safe_exchanges).into_response()
 }
 
 // handle_update_exchange_configs Update exchange configurations (encrypted data only)
+#[instrument(skip(state))]
 pub async fn handle_update_exchange_configs(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
@@ -2640,11 +2608,11 @@ pub async fn handle_update_exchange_configs(
 ) -> impl IntoResponse {
     let user_id = &user.user_id;
 
-    // 1. Parse encrypted payload
+    // Parse encrypted payload
     let encrypted_payload: EncryptedPayload = match serde_json::from_slice(&body) {
         Ok(p) => p,
         Err(e) => {
-            info!("❌ Failed to parse encrypted payload: {:?}", e);
+            error!("❌ Failed to parse encrypted payload: {:?}", e);
             return (
                 StatusCode::BAD_REQUEST,
                 Json(json!({ "error": "Invalid request format, encrypted transmission required" })),
@@ -2653,10 +2621,9 @@ pub async fn handle_update_exchange_configs(
         }
     };
 
-    // 2. Verify encrypted data (Check WrappedKey)
-    // Corresponding Go: if encryptedPayload.WrappedKey == ""
+    // Verify encrypted data (Check WrappedKey)
     if encrypted_payload.wrapped_key.is_empty() {
-        info!("❌ Detected unencrypted request (UserID: {})", user_id);
+        error!("❌ Detected unencrypted request (UserID: {})", user_id);
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({
@@ -2667,8 +2634,7 @@ pub async fn handle_update_exchange_configs(
         ).into_response();
     }
 
-    // 3. Decrypt data
-    // Corresponding Go: s.cryptoHandler.cryptoService.DecryptSensitiveData(...)
+    // Decrypt data
     let decrypted_json = match state
         .crypto_handler
         .crypto_service
@@ -2676,7 +2642,7 @@ pub async fn handle_update_exchange_configs(
     {
         Ok(s) => s,
         Err(e) => {
-            info!(
+            error!(
                 "❌ Failed to decrypt exchange config (UserID: {}): {:?}",
                 user_id, e
             );
@@ -2688,11 +2654,11 @@ pub async fn handle_update_exchange_configs(
         }
     };
 
-    // 4. Parse decrypted data
+    // Parse decrypted data
     let req: UpdateExchangeConfigRequest = match serde_json::from_str(&decrypted_json) {
         Ok(r) => r,
         Err(e) => {
-            info!("❌ Failed to parse decrypted data: {:?}", e);
+            error!("❌ Failed to parse decrypted data: {:?}", e);
             return (
                 StatusCode::BAD_REQUEST,
                 Json(json!({ "error": "Failed to parse decrypted data" })),
@@ -2703,8 +2669,7 @@ pub async fn handle_update_exchange_configs(
 
     info!("🔓 Decrypted exchange config data (UserID: {})", user_id);
 
-    // 5. Update each exchange's configuration
-    // Corresponding Go: Loop over req.Exchanges and call Update
+    // Update each exchange's configuration
     for (exchange_id, data) in &req.exchanges {
         let update_result = state
             .store
@@ -2736,14 +2701,13 @@ pub async fn handle_update_exchange_configs(
         }
     }
 
-    // 6. Reload traders
+    // Reload traders
     if let Err(e) = state
         .trader_manager
         .load_user_traders_from_store(&state.store, user_id)
         .await
     {
         info!("⚠️ Failed to reload user traders into memory: {:?}", e);
-        // Don't return error here since DB update succeeded
     }
 
     // Log success (masking sensitive data in logs is handled by not logging `req` directly or implementing custom Debug)
@@ -2754,12 +2718,6 @@ pub async fn handle_update_exchange_configs(
         Json(json!({ "message": "Exchange configuration updated" })),
     )
         .into_response()
-}
-
-// Statistics & Data (Query params example)
-#[derive(Deserialize)]
-struct TraderIdParam {
-    trader_id: Option<String>,
 }
 
 // handle_status System status
@@ -2793,17 +2751,18 @@ pub async fn handle_status(
 
     let status = trader.get_status().await.unwrap();
 
-    // 4. Return Response
+    // Return Response
     Json(status).into_response()
 }
 
 // handle_account Account information
+#[instrument(skip(state))]
 pub async fn handle_account(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    // 1. Get Trader ID from query (or default)
+    // Get Trader ID from query (or default)
     let query_trader_id = params.get("trader_id").cloned();
 
     // We reuse the helper function defined in previous steps
@@ -2814,8 +2773,7 @@ pub async fn handle_account(
         }
     };
 
-    // 2. Get Trader Instance from Manager
-    // Corresponding Go: s.traderManager.GetTrader(traderID)
+    // Get Trader Instance from Manager
     let trader = match state.trader_manager.get_trader(&trader_id).await {
         Ok(t) => t,
         Err(e) => {
@@ -2827,10 +2785,10 @@ pub async fn handle_account(
         }
     };
 
-    // 3. Log Request
+    // Log Request
     info!("📊 Received account info request [{}]", trader.get_name());
 
-    // 4. Get Account Info
+    // Get Account Info
     // We assume this returns Result<serde_json::Value> or Result<HashMap<String, Value>>
     let account = match trader.get_account_info().await {
         Ok(acc) => acc,
@@ -2849,7 +2807,7 @@ pub async fn handle_account(
         }
     };
 
-    // 5. Log Success (Extracting values for logging)
+    // Log Success (Extracting values for logging)
     let get_val = |key: &str| -> f64 { account.get(key).and_then(|v| v.as_f64()).unwrap_or(0.0) };
 
     info!(
@@ -2861,17 +2819,18 @@ pub async fn handle_account(
         get_val("total_pnl_pct")
     );
 
-    // 6. Return Response
+    // Return Response
     Json(account).into_response()
 }
 
 // handle_positions Position list
+#[instrument(skip(state))]
 pub async fn handle_positions(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    // 1. Resolve Trader ID
+    // Resolve Trader ID
     let query_trader_id = params.get("trader_id").cloned();
 
     // Use the helper function defined previously
@@ -2882,7 +2841,7 @@ pub async fn handle_positions(
         }
     };
 
-    // 2. Get Trader Instance
+    // Get Trader Instance
     let trader = match state.trader_manager.get_trader(&trader_id).await {
         Ok(t) => t,
         Err(e) => {
@@ -2894,9 +2853,7 @@ pub async fn handle_positions(
         }
     };
 
-    // 3. Get Positions
-    // Corresponding Go: trader.GetPositions()
-    // We assume get_positions returns Result<Vec<Position>> or Result<Value>
+    // Get Positions
     match trader.get_positions().await {
         Ok(positions) => {
             // Return JSON response
@@ -2945,12 +2902,9 @@ pub async fn handle_decisions(
         .await
     {
         Ok(records) => {
-            // Return JSON response
-            // Corresponding Go: c.JSON(http.StatusOK, records)
             Json(records).into_response()
         }
         Err(e) => {
-            // Corresponding Go: c.JSON(http.StatusInternalServerError, ...)
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": format!("Failed to get decision log: {:?}", e) })),
@@ -2975,7 +2929,7 @@ pub async fn handle_latest_decisions(
         }
     };
 
-    // 2. Verify Trader exists in Manager
+    // Verify Trader exists in Manager
     if let Err(e) = state.trader_manager.get_trader(&trader_id).await {
         return (
             StatusCode::NOT_FOUND,
@@ -2984,7 +2938,7 @@ pub async fn handle_latest_decisions(
             .into_response();
     }
 
-    // 3. Get decision records (Limit 5)
+    // Get decision records (Limit 5)
     match state
         .store
         .decision()
@@ -2992,14 +2946,9 @@ pub async fn handle_latest_decisions(
         .await
     {
         Ok(mut records) => {
-            // 4. Reverse array to put newest first
-            // Corresponding Go: for i, j := 0, len(records)-1; ... { records[i], records[j] = ... }
-            // Rust's Vec has a built-in reverse method which is very efficient (in-place).
-            // NOTE: This assumes 'get_latest_records' returns ASC order (Oldest -> Newest)
-            // as stated in the Go comments.
             records.reverse();
 
-            // 5. Return JSON
+            // Return JSON
             Json(records).into_response()
         }
         Err(e) => (
@@ -3025,7 +2974,7 @@ pub async fn handle_statistics(
         }
     };
 
-    // 2. Verify Trader exists in Manager
+    // Verify Trader exists in Manager
     if let Err(e) = state.trader_manager.get_trader(&trader_id).await {
         return (
             StatusCode::NOT_FOUND,
@@ -3034,17 +2983,12 @@ pub async fn handle_statistics(
             .into_response();
     }
 
-    // 3. Get Statistics
-    // Corresponding Go: trader.GetStore().Decision().GetStatistics(trader.GetID())
-    // In our Rust architecture, we access the store via AppState.
+    // Get Statistics
     match state.store.decision().get_statistics(&trader_id).await {
         Ok(stats) => {
-            // Return JSON response
-            // Corresponding Go: c.JSON(http.StatusOK, stats)
             Json(stats).into_response()
         }
         Err(e) => {
-            // Corresponding Go: c.JSON(http.StatusInternalServerError, ...)
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": format!("Failed to get statistics: {:?}", e) })),

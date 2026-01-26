@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::f64;
 
 use crate::types::PositionSnapshot;
-
 use anyhow::{Result, anyhow};
 
 const EPSILON: f64 = 1e-8;

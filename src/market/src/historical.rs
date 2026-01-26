@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use super::data::normalize;
 use super::timeframe::normalize_timeframe;
 use super::types::Kline;
@@ -5,7 +7,6 @@ use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use reqwest::Client;
 use serde_json::Value;
-use std::time::Duration;
 
 const BINANCE_FUTURES_KLINES_URL: &str = "https://fapi.binance.com/fapi/v1/klines";
 const BINANCE_MAX_KLINE_LIMIT: usize = 1500;
@@ -103,10 +104,6 @@ pub async fn get_klines_range(
                 close: parse_float(&item[4]),
                 volume: parse_float(&item[5]),
                 close_time: parse_i64(&item[6]),
-                // Go struct implies other fields might exist in Kline definition,
-                // but these are the ones mapped in the original code.
-                // If the rust Kline struct has other fields (quote_volume, trades, etc),
-                // they need to be populated here or defaulted.
                 ..Default::default()
             };
 

@@ -1,11 +1,10 @@
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+
 /// Data market data structure
-/// Uses `rename_all = "PascalCase"` to match Go's default JSON export for public fields,
-/// unless overridden by a specific `rename` attribute.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Data {
@@ -22,14 +21,11 @@ pub struct Data {
     #[serde(rename = "CurrentRSI7")]
     pub current_rsi7: f64,
 
-    // Using Option to mimic Go's pointer (*OIData), allowing null/nil
     pub open_interest: Option<OIData>,
     pub funding_rate: f64,
     pub intraday_series: Option<IntradayData>,
     pub longer_term_context: Option<LongerTermData>,
 
-    // Multi-timeframe data
-    // Matches Go tag `json:"timeframe_data,omitempty"`
     #[serde(rename = "timeframe_data", skip_serializing_if = "Option::is_none")]
     pub timeframe_data: Option<HashMap<String, TimeframeSeriesData>>,
 }
@@ -266,13 +262,6 @@ pub struct AlertThresholds {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CleanupConfig {
-    // We map Go's time.Duration to u64 (seconds) for JSON serialization,
-    // or use a custom deserializer if string format "30m" is required.
-    // Here we assume simple integers (seconds) or internal Duration usage.
-    // To strictly match Go's logical use, we'll store them as Duration in Rust
-    // but Serialize them as needed. Here, we'll use `std::time::Duration`.
-    // Note: Standard Serde does not serialize Duration easily without crates like `humantime-serde`.
-    // For simplicity in this translation, we will treat them as fields, but implementing `Default` is key.
     #[serde(skip, default = "default_inactive_timeout")]
     pub inactive_timeout: Duration,
 

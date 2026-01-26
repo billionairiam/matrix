@@ -144,7 +144,6 @@ impl PromptManager {
 }
 
 /// Helper to get or initialize the global manager.
-/// Mimics the Go `init()` behavior by loading on first access.
 fn get_global_instance() -> &'static PromptManager {
     GLOBAL_PROMPT_MANAGER.get_or_init(|| {
         let pm = PromptManager::new();

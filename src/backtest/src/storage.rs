@@ -4,18 +4,6 @@ use std::io::{self};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use anyhow::{Result, anyhow};
-use chrono::{TimeDelta, Utc};
-use serde::{Deserialize, Serialize};
-use tokio::fs::{self, File, OpenOptions};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use uuid::Uuid;
-use walkdir::WalkDir;
-use zip::CompressionMethod;
-use zip::write::FileOptions;
-
-use store::decision::DecisionRecord;
-
 use crate::config::BacktestConfig;
 use crate::persistence_db::{get_db, using_db};
 use crate::storage_db_impl::{
@@ -31,6 +19,16 @@ use crate::types::EquityPoint;
 use crate::types::Metrics;
 use crate::types::RunMetadata;
 use crate::types::TradeEvent;
+use anyhow::{Result, anyhow};
+use chrono::{TimeDelta, Utc};
+use serde::{Deserialize, Serialize};
+use store::decision::DecisionRecord;
+use tokio::fs::{self, File, OpenOptions};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use uuid::Uuid;
+use walkdir::WalkDir;
+use zip::CompressionMethod;
+use zip::write::FileOptions;
 
 pub const BACKTESTS_ROOT_DIR: &str = "backtests";
 
@@ -102,7 +100,7 @@ async fn write_file_atomic(path: &Path, data: &[u8]) -> Result<()> {
         let mut tmp_file = File::create(&tmp_path).await?;
         tmp_file.write_all(data).await?;
         tmp_file.sync_all().await?;
-    } // File closed here
+    }
 
     // Rename is atomic on POSIX
     if let Err(e) = fs::rename(&tmp_path, path).await {
@@ -455,10 +453,6 @@ async fn scan_decision_files(dir: &Path) -> Result<Vec<DecisionFile>> {
 
     // Sort descending by mod_time
     files.sort_by(|a, b| b.mod_time.cmp(&a.mod_time));
-
-    // Fallback sort by path if times missing/equal?
-    // Go code sorts by Path if ModTime info missing.
-    // In Rust, SystemTime is comparable.
 
     Ok(files)
 }

@@ -475,10 +475,6 @@ impl OrderStore {
         Ok(orders)
     }
 
-    // ==========================================
-    // Math Helpers
-    // ==========================================
-
     fn calculate_sharpe_ratio(pnls: &[f64]) -> f64 {
         if pnls.len() < 2 {
             return 0.0;

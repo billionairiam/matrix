@@ -1,4 +1,4 @@
-use std::{clone, collections::HashMap};
+use std::{collections::HashMap};
 use std::sync::Arc;
 use std::fmt::Write;
 use std::time::Duration;
@@ -9,7 +9,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use crate::engine::{Context, PositionInfo, CandidateCoin};
-use tracing::info;
+use tracing::{info, instrument, warn};
 use market::{
     types::{Data, TimeframeSeriesData},
     data::{normalize, get}
@@ -79,6 +79,7 @@ pub struct StrategyEngine {
 
 impl StrategyEngine {
     /// Creates strategy execution engine
+    #[instrument]
     pub fn new(config: StrategyConfig) -> Self {
         Self {
             config,
@@ -128,7 +129,7 @@ impl StrategyEngine {
                                 symbol_sources.entry(coin.symbol).or_default().push("ai500".to_string());
                             }
                         }
-                        Err(e) => info!("⚠️  Failed to get AI500 coin pool: {:?}", e),
+                        Err(e) => warn!("⚠️  Failed to get AI500 coin pool: {:?}", e),
                     }
                 }
 
@@ -140,7 +141,7 @@ impl StrategyEngine {
                                 symbol_sources.entry(coin.symbol).or_default().push("oi_top".to_string());
                             }
                         }
-                        Err(e) => info!("⚠️  Failed to get OI Top: {:?}", e),
+                        Err(e) => warn!("⚠️  Failed to get OI Top: {:?}", e),
                     }
                 }
 
@@ -200,6 +201,7 @@ impl StrategyEngine {
     }
 
     /// Fetches external data sources
+    #[instrument(skip(self))]
     pub async fn fetch_external_data(&self) -> Result<HashMap<String, Value>> {
         let mut external_data = HashMap::new();
 
@@ -209,7 +211,7 @@ impl StrategyEngine {
                     external_data.insert(source.name.clone(), data);
                 }
                 Err(e) => {
-                    info!("⚠️  Failed to fetch external data source [{}]: {:?}", source.name, e);
+                    warn!("⚠️  Failed to fetch external data source [{}]: {:?}", source.name, e);
                 }
             }
         }
@@ -240,6 +242,7 @@ impl StrategyEngine {
     }
 
     /// Batch fetches quantitative data
+    #[instrument(skip(self))]
     pub async fn fetch_quant_data_batch(&self, symbols: &Vec<String>) -> HashMap<String, QuantData> {
         let mut result = HashMap::new();
 
@@ -257,7 +260,7 @@ impl StrategyEngine {
                 }
                 Ok(None) => {}
                 Err(e) => {
-                    info!("⚠️  Failed to fetch quantitative data for {}: {:?}", symbol, e);
+                    warn!("⚠️  Failed to fetch quantitative data for {}: {:?}", symbol, e);
                 }
             }
         }

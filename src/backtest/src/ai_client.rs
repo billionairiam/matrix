@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use anyhow::{Result, anyhow};
 use mcp::Provider;
 use mcp::client::Client;
 use mcp::deepseek_client::new_deepseek_client;

@@ -1,15 +1,16 @@
-use anyhow::{Result, anyhow};
-use futures_util::{SinkExt, StreamExt, stream::SplitSink};
-use log::{error, info, warn};
-use serde::Deserialize;
-use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use anyhow::{Result, anyhow};
+use futures_util::{SinkExt, StreamExt, stream::SplitSink};
+use serde::Deserialize;
+use serde_json::{Value, json};
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, mpsc};
 use tokio::time::sleep;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
+use tracing::{debug, error, info, instrument, warn};
 use url::Url;
 
 // Type alias for the Write half of the WebSocket stream
@@ -52,9 +53,9 @@ impl CombinedStreamsClient {
     }
 
     /// Establishes the WebSocket connection to the Combined Streams endpoint
-    pub async fn connect(&self) -> Result<(), String> {
+    pub async fn connect(&self) -> Result<()> {
         let url = Url::parse("wss://fstream.binance.com/stream")
-            .map_err(|e| format!("Invalid URL: {}", e))?;
+            .map_err(|e| anyhow!("Invalid URL: {}", e))?;
 
         match connect_async(url).await {
             Ok((ws_stream, _)) => {
@@ -74,7 +75,7 @@ impl CombinedStreamsClient {
 
                 Ok(())
             }
-            Err(e) => Err(format!(
+            Err(e) => Err(anyhow!(
                 "Combined stream WebSocket connection failed: {}",
                 e
             )),
@@ -87,7 +88,6 @@ impl CombinedStreamsClient {
         symbols: &Vec<String>,
         interval: &str,
     ) -> Result<()> {
-        // Rust's `chunks` is equivalent to the splitIntoBatches logic
         let batches: Vec<&[String]> = symbols.chunks(self.batch_size).collect();
 
         for (i, batch) in batches.iter().enumerate() {
@@ -113,11 +113,12 @@ impl CombinedStreamsClient {
     }
 
     /// Sends the subscription message for a list of streams
+    #[instrument]
     pub async fn subscribe_streams(&self, streams: Vec<String>) -> Result<(), String> {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_nanos(); // Go uses UnixNano()
+            .as_nanos();
 
         let payload = json!({
             "method": "SUBSCRIBE",
@@ -164,11 +165,11 @@ impl CombinedStreamsClient {
             }
         }
 
-        // Trigger reconnect logic (sync wrapper to break async recursion types)
         self.handle_reconnect();
     }
 
     /// Parses the combined message wrapper and dispatches data to subscribers
+    #[instrument]
     async fn handle_combined_message(&self, text: &str) {
         // Parse: {"stream":"...", "data": ...}
         match serde_json::from_str::<CombinedStreamMessage>(text) {
@@ -189,10 +190,9 @@ impl CombinedStreamsClient {
             Err(e) => {
                 // This might happen for response messages (e.g. {"result":null,"id":...})
                 // which don't match CombinedStreamMessage structure. We can ignore or log debug.
-                log::debug!(
+                debug!(
                     "Ignored message (not a stream event): {} | Error: {}",
-                    text,
-                    e
+                    text, e
                 );
             }
         }
@@ -211,6 +211,7 @@ impl CombinedStreamsClient {
     }
 
     /// Handles reconnection logic using a fire-and-forget task
+    #[instrument]
     fn handle_reconnect(&self) {
         if !self.reconnect || self.shutdown_tx.is_closed() {
             return;

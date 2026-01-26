@@ -1,3 +1,5 @@
+use std::env;
+
 use aes_gcm::{
     Aes256Gcm, Key, Nonce,
     aead::{Aead, KeyInit, Payload},
@@ -15,7 +17,6 @@ use rsa::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::env;
 
 const STORAGE_PREFIX: &str = "ENC:v1:";
 const STORAGE_DELIMITER: &str = ":";

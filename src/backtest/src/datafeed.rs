@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use super::config::BacktestConfig;
 use anyhow::{Context, Result, anyhow};
 use chrono::{TimeZone, Utc};
-
-use super::config::BacktestConfig;
 use market::data::build_data_from_klines;
 use market::historical::get_klines_range;
 use market::timeframe::tf_duration;

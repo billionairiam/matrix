@@ -25,29 +25,28 @@ use serde::Deserialize;
 use serde_json::Value;
 use serde_json::json;
 use store::strategy::{Strategy, StrategyConfig};
-use tracing::{error, info};
+use tracing::{error, info, instrument};
 use uuid::Uuid;
 
 #[derive(Deserialize)]
 pub struct PreviewPromptRequest {
     pub config: StrategyConfig,
 
-    #[serde(default)] // Defaults to 0.0 if missing in JSON
+    #[serde(default)]
     pub account_equity: f64,
 
-    #[serde(default)] // Defaults to "" if missing in JSON
+    #[serde(default)]
     pub prompt_variant: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct DuplicateStrategyRequest {
     pub name: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct UpdateStrategyRequest {
     pub name: String,
-    // Use Option<String> to handle potential nulls, or String to match Go's default empty string behavior
     #[serde(default)]
     pub description: String,
     pub config: StrategyConfig,
@@ -57,10 +56,10 @@ pub struct UpdateStrategyRequest {
 pub struct CreateStrategyRequest {
     pub name: String,
     pub description: Option<String>,
-    pub config: StrategyConfig, // Expecting a JSON object that matches StrategyConfig
+    pub config: StrategyConfig,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct StrategyTestRunRequest {
     pub config: StrategyConfig,
 
@@ -74,24 +73,21 @@ pub struct StrategyTestRunRequest {
 }
 
 // handle_strategy_test_run AI test run
+#[instrument(skip(state))]
 pub async fn handle_strategy_test_run(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
     Json(mut req): Json<StrategyTestRunRequest>,
 ) -> impl IntoResponse {
-    // 1. Validate Request
-    // Axum handles basic JSON binding errors.
-    // Manual check for "balanced" default logic matches Go.
+    // Validate Request
     if req.prompt_variant.is_empty() {
         req.prompt_variant = "balanced".to_string();
     }
 
-    // 2. Create Strategy Engine
-    // Assuming StrategyEngine::new takes a reference to config
+    // Create Strategy Engine
     let engine = StrategyEngine::new(req.config.clone());
 
-    // 3. Get Candidate Coins
-    // Assuming this returns Result<Vec<CoinInfo>>
+    // Get Candidate Coins
     let candidates = match engine.get_candidate_coins().await {
         Ok(c) => c,
         Err(e) => {
@@ -106,7 +102,7 @@ pub async fn handle_strategy_test_run(
         }
     };
 
-    // 4. Determine Timeframes configuration
+    // Determine Timeframes configuration
     // Accessing nested fields from config
     let klines_config = &req.config.indicators.klines;
     let mut timeframes = klines_config.selected_timeframes.clone();
@@ -139,8 +135,7 @@ pub async fn handle_strategy_test_run(
         timeframes, primary_timeframe, kline_count
     );
 
-    // 5. Get Real Market Data (Concurrent Fetching)
-    // Go loop was sequential, here we make it concurrent for performance
+    // Get Real Market Data (Concurrent Fetching)
     let fetch_tasks: Vec<_> = candidates
         .iter()
         .map(|coin| {
@@ -169,7 +164,7 @@ pub async fn handle_strategy_test_run(
         .flatten() // Removes None
         .collect();
 
-    // 6. Build Context
+    // Build Context
     let current_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
     let test_context = EngineContext {
@@ -199,11 +194,11 @@ pub async fn handle_strategy_test_run(
         altcoin_leverage: 5,
     };
 
-    // 7. Build Prompts
+    // Build Prompts
     let system_prompt = engine.build_system_prompt(1000.0, &req.prompt_variant);
     let user_prompt = engine.build_user_prompt(&test_context);
 
-    // 8. Handle Real AI Run
+    // Handle Real AI Run
     if req.run_real_ai {
         if let Some(model_id) = &req.ai_model_id {
             if !model_id.is_empty() {
@@ -285,7 +280,7 @@ async fn run_real_ai_test(
         .await
         .context("failed to get AI model")?;
 
-    // 2. Validate Model State
+    // Validate Model State
     if !model.enabled {
         return Err(anyhow!("AI model {} is not enabled", model.name));
     }
@@ -315,8 +310,7 @@ pub async fn handle_get_strategy(
     // Extract strategy_id from URL path
     Path(strategy_id): Path<String>,
 ) -> impl IntoResponse {
-    // 1. Get strategy from database
-    // Corresponding Go: s.store.Strategy().Get(userID, strategyID)
+    // Get strategy from database
     let strategy = match state
         .store
         .strategy()
@@ -325,7 +319,6 @@ pub async fn handle_get_strategy(
     {
         Ok(s) => s,
         Err(_) => {
-            // Corresponding Go: c.JSON(http.StatusNotFound, ...)
             return (
                 StatusCode::NOT_FOUND,
                 Json(json!({ "error": "Strategy not found" })),
@@ -334,13 +327,11 @@ pub async fn handle_get_strategy(
         }
     };
 
-    // 2. Parse config JSON
+    // Parse config JSON
     // The config is stored as a string in DB, but we want to return it as a nested JSON object.
-    // Corresponding Go: json.Unmarshal([]byte(strategy.Config), &config)
     let config_obj: Value = serde_json::from_str(&strategy.config).unwrap_or(json!({}));
 
-    // 3. Return JSON response
-    // Corresponding Go: c.JSON(http.StatusOK, gin.H{...})
+    // Return JSON response
     Json(json!({
         "id":          strategy.id,
         "name":        strategy.name,
@@ -360,9 +351,7 @@ pub async fn handle_create_strategy(
     Extension(user): Extension<AuthUser>,
     Json(req): Json<CreateStrategyRequest>,
 ) -> impl IntoResponse {
-    // 1. Validate Input
-    // Axum handles type mismatch errors automatically.
-    // We add a manual check for empty name (corresponding to binding:"required")
+    // Validate Input
     if req.name.trim().is_empty() {
         return (
             StatusCode::BAD_REQUEST,
@@ -371,8 +360,7 @@ pub async fn handle_create_strategy(
             .into_response();
     }
 
-    // 2. Serialize configuration
-    // Corresponding Go: json.Marshal(req.Config)
+    // Serialize configuration
     let config_json = match serde_json::to_string(&req.config) {
         Ok(s) => s,
         Err(e) => {
@@ -385,8 +373,7 @@ pub async fn handle_create_strategy(
         }
     };
 
-    // 3. Create Strategy Entity
-    // Corresponding Go: uuid.New().String()
+    // Create Strategy Entity
     let strategy_id = Uuid::new_v4().to_string();
 
     let strategy = Strategy {
@@ -401,8 +388,7 @@ pub async fn handle_create_strategy(
         updated_at: Utc::now(),
     };
 
-    // 4. Save to Database
-    // Corresponding Go: s.store.Strategy().Create(strategy)
+    // Save to Database
     if let Err(e) = state.store.strategy().create(&strategy).await {
         error!("Failed to create strategy: {:?}", e);
         return (
@@ -412,7 +398,7 @@ pub async fn handle_create_strategy(
             .into_response();
     }
 
-    // 5. Return Success Response
+    // Return Success Response
     (
         StatusCode::OK,
         Json(json!({
@@ -424,13 +410,14 @@ pub async fn handle_create_strategy(
 }
 
 // handle_update_strategy Update strategy
+#[instrument(skip(state))]
 pub async fn handle_update_strategy(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
     Path(strategy_id): Path<String>,
     Json(req): Json<UpdateStrategyRequest>,
 ) -> impl IntoResponse {
-    // 1. Check if strategy exists and belongs to user
+    // Check if strategy exists and belongs to user
     let mut strategy = match state
         .store
         .strategy()
@@ -447,7 +434,7 @@ pub async fn handle_update_strategy(
         }
     };
 
-    // 2. Check if it's a system default strategy
+    // Check if it's a system default strategy
     if strategy.is_default {
         return (
             StatusCode::FORBIDDEN,
@@ -456,7 +443,7 @@ pub async fn handle_update_strategy(
             .into_response();
     }
 
-    // 3. Serialize configuration
+    // Serialize configuration
     let config_json = match serde_json::to_string(&req.config) {
         Ok(s) => s,
         Err(e) => {
@@ -469,13 +456,13 @@ pub async fn handle_update_strategy(
         }
     };
 
-    // 4. Update the strategy object
+    // Update the strategy object
     strategy.name = req.name;
     strategy.description = req.description;
     strategy.config = config_json;
     strategy.updated_at = chrono::Utc::now();
 
-    // 5. Update database
+    // Update database
     if let Err(e) = state.store.strategy().update(&strategy).await {
         error!("Failed to update strategy: {:?}", e);
         return (
@@ -485,7 +472,7 @@ pub async fn handle_update_strategy(
             .into_response();
     }
 
-    // 6. Return Success
+    // Return Success
     (
         StatusCode::OK,
         Json(json!({ "message": "Strategy updated successfully" })),
@@ -494,12 +481,13 @@ pub async fn handle_update_strategy(
 }
 
 // handle_delete_strategy Delete strategy
+#[instrument(skip(state))]
 pub async fn handle_delete_strategy(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
     Path(strategy_id): Path<String>,
 ) -> impl IntoResponse {
-    // 1. Delete from database
+    // Delete from database
     if let Err(e) = state
         .store
         .strategy()
@@ -514,7 +502,7 @@ pub async fn handle_delete_strategy(
             .into_response();
     }
 
-    // 2. Return Success
+    // Return Success
     (
         StatusCode::OK,
         Json(json!({ "message": "Strategy deleted successfully" })),
@@ -523,12 +511,13 @@ pub async fn handle_delete_strategy(
 }
 
 // handle_activate_strategy Activate strategy
+#[instrument(skip(state))]
 pub async fn handle_activate_strategy(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
     Path(strategy_id): Path<String>,
 ) -> impl IntoResponse {
-    // 1. Activate strategy in database
+    // Activate strategy in database
     if let Err(e) = state
         .store
         .strategy()
@@ -543,7 +532,7 @@ pub async fn handle_activate_strategy(
             .into_response();
     }
 
-    // 2. Return Success
+    // Return Success
     (
         StatusCode::OK,
         Json(json!({ "message": "Strategy activated successfully" })),
@@ -552,14 +541,14 @@ pub async fn handle_activate_strategy(
 }
 
 // handle_duplicate_strategy Duplicate strategy
+#[instrument(skip(state))]
 pub async fn handle_duplicate_strategy(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
     Path(source_id): Path<String>,
     Json(req): Json<DuplicateStrategyRequest>,
 ) -> impl IntoResponse {
-    // 1. Validate Input
-    // Check if name is empty (corresponding to binding:"required")
+    // Validate Input
     if req.name.trim().is_empty() {
         return (
             StatusCode::BAD_REQUEST,
@@ -568,10 +557,10 @@ pub async fn handle_duplicate_strategy(
             .into_response();
     }
 
-    // 2. Generate new ID
+    // Generate new ID
     let new_id = Uuid::new_v4().to_string();
 
-    // 3. Duplicate in database
+    // Duplicate in database
     if let Err(e) = state
         .store
         .strategy()
@@ -586,7 +575,7 @@ pub async fn handle_duplicate_strategy(
             .into_response();
     }
 
-    // 4. Return Success
+    // Return Success
     (
         StatusCode::OK,
         Json(json!({
@@ -602,14 +591,10 @@ pub async fn handle_get_active_strategy(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
 ) -> impl IntoResponse {
-    // 1. Get active strategy from database
-    // Note: Axum's Extension guarantees user exists if middleware passed,
-    // so we don't strictly need to check for empty user_id here.
+    // Get active strategy from database
     let strategy = match state.store.strategy().get_active(&user.user_id).await {
         Ok(s) => s,
         Err(_) => {
-            // Corresponding Go: c.JSON(http.StatusNotFound, ...)
-            // We interpret any DB error here as "No active strategy" to match Go logic
             return (
                 StatusCode::NOT_FOUND,
                 Json(json!({ "error": "No active strategy" })),
@@ -618,13 +603,10 @@ pub async fn handle_get_active_strategy(
         }
     };
 
-    // 2. Parse config JSON
-    // The config is stored as a string in the DB, but the API client expects a JSON object.
-    // Corresponding Go: json.Unmarshal([]byte(strategy.Config), &config)
+    // Parse config JSON
     let config_obj: Value = serde_json::from_str(&strategy.config).unwrap_or(json!({}));
 
-    // 3. Return JSON response
-    // Corresponding Go: c.JSON(http.StatusOK, gin.H{...})
+    // Return JSON response
     Json(json!({
         "id":          strategy.id,
         "name":        strategy.name,
@@ -643,19 +625,16 @@ pub async fn handle_get_default_strategy_config(
     // Extract query parameters into a HashMap (e.g., ?lang=zh)
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    // 1. Get language from query parameter
-    // Corresponding Go: lang := c.Query("lang")
+    // Get language from query parameter
     let raw_lang = params.get("lang").map(|s| s.as_str()).unwrap_or("");
 
     // 2. Logic: Default to "en" if not "zh"
-    // Corresponding Go: if lang != "zh" { lang = "en" }
     let lang = if raw_lang == "zh" { "zh" } else { "en" };
 
-    // 3. Get default configuration
-    // Corresponding Go: defaultConfig := store.GetDefaultStrategyConfig(lang)
+    // Get default configuration
     let default_config = store::strategy::StrategyStore::get_default_strategy_config(lang);
 
-    // 4. Return JSON
+    // Return JSON
     Json(default_config)
 }
 
@@ -665,8 +644,6 @@ pub async fn handle_preview_prompt(
     // Axum automatically handles JSON binding and validation errors (400 Bad Request)
     Json(req): Json<PreviewPromptRequest>,
 ) -> impl IntoResponse {
-    // In Rust with Extension, if the middleware passed, the user exists.
-    // However, if you strictly need to check for empty ID (though unlikely with auth middleware):
     if user.user_id.is_empty() {
         // This usually handled by middleware returning 401
         return (
@@ -676,35 +653,29 @@ pub async fn handle_preview_prompt(
             .into_response();
     }
 
-    // 1. Apply Default Values
-    // Corresponding Go: if req.AccountEquity <= 0 { ... }
+    // Apply Default Values
     let account_equity = if req.account_equity <= 0.0 {
         1000.0
     } else {
         req.account_equity
     };
 
-    // Corresponding Go: if req.PromptVariant == "" { ... }
     let prompt_variant = if req.prompt_variant.is_empty() {
         "balanced".to_string()
     } else {
         req.prompt_variant
     };
 
-    // 2. Create strategy engine
-    // Corresponding Go: engine := decision.NewStrategyEngine(&req.Config)
-    // We assume StrategyEngine::new takes a reference to config
+    // Create strategy engine
     let engine = decision::strategy_engine::StrategyEngine::new(req.config.clone());
 
-    // 3. Build system prompt
-    // Corresponding Go: engine.BuildSystemPrompt(...)
+    // Build system prompt
     let system_prompt = engine.build_system_prompt(account_equity, &prompt_variant);
 
-    // 4. Get available templates
-    // Corresponding Go: decision.GetAllPromptTemplateNames()
+    // Get available templates
     let template_names = decision::prompt_manager::get_all_prompt_template_names();
 
-    // 5. Build Config Summary for response
+    // Build Config Summary for response
     // Accessing nested fields of StrategyConfig
     let config_summary = json!({
         "coin_source":      req.config.coin_source.source_type,
@@ -714,7 +685,7 @@ pub async fn handle_preview_prompt(
         "max_positions":    req.config.risk_control.max_positions,
     });
 
-    // 6. Return Response
+    // Return Response
     Json(json!({
         "system_prompt":       system_prompt,
         "prompt_variant":      prompt_variant,
@@ -729,9 +700,7 @@ pub async fn handle_get_strategies(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
 ) -> impl IntoResponse {
-    // 1. Authorization Check
-    // Axum's Extension guarantees 'user' exists if middleware passed.
-    // However, if you want to strictly match Go's empty check logic:
+    // Authorization Check
     if user.user_id.is_empty() {
         return (
             StatusCode::UNAUTHORIZED,
@@ -740,8 +709,7 @@ pub async fn handle_get_strategies(
             .into_response();
     }
 
-    // 2. Get strategies from database
-    // Corresponding Go: s.store.Strategy().List(userID)
+    // Get strategies from database
     let strategies = match state.store.strategy().list(&user.user_id).await {
         Ok(s) => s,
         Err(e) => {
@@ -754,14 +722,10 @@ pub async fn handle_get_strategies(
         }
     };
 
-    // 3. Convert to frontend format
-    // Corresponding Go: Loop + json.Unmarshal(st.Config)
+    // Convert to frontend format
     let result: Vec<Value> = strategies
         .into_iter()
         .map(|st| {
-            // Parse the config JSON string into a serde_json::Value
-            // If parsing fails, default to an empty object to prevent the whole request from failing
-            // (This mimics Go's behavior where unmarshal errors might result in empty structs)
             let config_obj: Value = serde_json::from_str(&st.config).unwrap_or(json!({}));
 
             json!({
@@ -777,8 +741,7 @@ pub async fn handle_get_strategies(
         })
         .collect();
 
-    // 4. Return response
-    // Corresponding Go: c.JSON(http.StatusOK, gin.H{"strategies": result})
+    // Return response
     Json(json!({
         "strategies": result
     }))

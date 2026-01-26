@@ -1,9 +1,10 @@
+use std::collections::HashMap;
+
 use super::order::TraderStats;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
-use std::collections::HashMap;
 
 /// TraderPosition position record (complete open/close position tracking)
 #[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]

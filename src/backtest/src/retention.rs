@@ -8,11 +8,12 @@ use crate::storage_db_impl::query_retention_candidates;
 use crate::types::RunState;
 use chrono::{DateTime, Utc};
 use tokio::fs;
-use tracing::info;
+use tracing::{info, instrument};
 
 pub const MAX_COMPLETED_RUNS: usize = 100;
 
 /// Enforces the retention policy for backtest runs.
+#[instrument]
 pub async fn enforce_retention(max_runs: usize) {
     if max_runs == 0 {
         return;
@@ -85,6 +86,7 @@ pub async fn enforce_retention(max_runs: usize) {
     }
 }
 
+#[instrument]
 async fn enforce_retention_db(max_runs: usize) {
     let final_states = vec![
         RunState::Completed,

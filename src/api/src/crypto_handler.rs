@@ -1,19 +1,17 @@
+use std::sync::Arc;
+
 use axum::{
     extract::State,
     http::StatusCode,
     response::{IntoResponse, Json},
 };
-use serde_json::json;
-use std::sync::Arc;
-use tracing::error;
-
 use crypto::crypto::{CryptoService, EncryptedPayload};
+use serde_json::json;
+use tracing::error;
 
 /// CryptoHandler Encryption API handler state
 #[derive(Debug)]
 pub struct CryptoHandler {
-    // In Rust, services are often wrapped in Arc, but here we will wrap
-    // the whole Handler in Arc when passing to the Router.
     pub crypto_service: Arc<CryptoService>,
 }
 
@@ -22,8 +20,6 @@ impl CryptoHandler {
     pub fn new(crypto_service: Arc<CryptoService>) -> Self {
         Self { crypto_service }
     }
-
-    // ==================== Public Key Endpoint ====================
 
     /// HandleGetPublicKey Get server public key
     /// Usage: .route("/public-key", get(CryptoHandler::get_public_key))
@@ -35,8 +31,6 @@ impl CryptoHandler {
             "algorithm":  "RSA-OAEP-2048",
         }))
     }
-
-    // ==================== Encrypted Data Decryption Endpoint ====================
 
     /// HandleDecryptSensitiveData Decrypt encrypted data sent from client
     pub async fn decrypt_sensitive_data(
@@ -60,17 +54,4 @@ impl CryptoHandler {
             }
         }
     }
-}
-
-/// Validate private key format
-fn is_valid_private_key(key: &str) -> bool {
-    // EVM private key: 64 hex characters (optional 0x prefix)
-    if key.len() == 64 {
-        return true;
-    }
-    if key.len() == 66 && key.starts_with("0x") {
-        return true;
-    }
-    // TODO: Add validation for other chains
-    false
 }

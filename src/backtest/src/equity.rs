@@ -1,9 +1,8 @@
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
-use anyhow::Result;
-
 use super::types::{EquityPoint, TradeEvent};
+use anyhow::Result;
 use market::timeframe::tf_duration;
 
 /// Resamples equity curve based on timeframe.

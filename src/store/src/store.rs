@@ -19,7 +19,7 @@ use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
 };
 use tokio::sync::RwLock;
-use tracing::{info, warn};
+use tracing::{info, instrument, warn};
 
 struct NoOpCrypto;
 impl CryptoProvider for NoOpCrypto {
@@ -40,6 +40,7 @@ pub struct Store {
 
 impl Store {
     /// New creates new Store instance
+    #[instrument]
     pub async fn new(db_path: &str) -> Result<Self> {
         // SQLite configuration matching Go's settings
         let options = SqliteConnectOptions::from_str(db_path)
@@ -141,6 +142,7 @@ impl Store {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     async fn init_default_data(&self) -> Result<()> {
         self.ai_model().await.init_default_data().await?;
         self.exchange().await.init_default_data().await?;

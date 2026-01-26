@@ -24,17 +24,20 @@ use serde::Deserialize;
 use serde_json::json;
 use tokio::fs::File;
 use tokio_util::io::ReaderStream;
+use tracing::{info, instrument, warn};
 
+#[derive(Debug)]
 struct DeleteGuard(PathBuf);
 
 impl Drop for DeleteGuard {
+    #[instrument]
     fn drop(&mut self) {
         // Attempt to remove the file. We use std::fs here because Drop is synchronous.
         // For small metadata operations, this is acceptable.
         if let Err(e) = std::fs::remove_file(&self.0) {
-            tracing::warn!("Failed to delete temporary export file {:?}: {}", self.0, e);
+            warn!("Failed to delete temporary export file {:?}: {}", self.0, e);
         } else {
-            tracing::info!("Deleted temporary export file {:?}", self.0);
+            info!("Deleted temporary export file {:?}", self.0);
         }
     }
 }
@@ -61,7 +64,7 @@ pub async fn handle_backtest_start(
     Extension(user): Extension<AuthUser>,
     Json(req): Json<BacktestStartRequest>,
 ) -> impl IntoResponse {
-    // 1. Check Backtest Manager Availability
+    // Check Backtest Manager Availability
     if state.backtest_manager.is_none() {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -73,12 +76,12 @@ pub async fn handle_backtest_start(
 
     let mut cfg = req.config;
 
-    // 2. RunID Logic
+    // RunID Logic
     if cfg.run_id.trim().is_empty() {
         cfg.run_id = format!("bt_{}", Utc::now().format("%Y%m%d_%H%M%S"));
     }
 
-    // 3. Prompt Template Logic
+    // Prompt Template Logic
     let trimmed_tmpl = cfg.prompt_template.trim();
     cfg.prompt_template = if trimmed_tmpl.is_empty() {
         "default".to_string()
@@ -94,13 +97,10 @@ pub async fn handle_backtest_start(
         ).into_response();
     }
 
-    // 5. Set UserID
-    // Corresponding Go: normalizeUserID(...)
-    // We assume the middleware provides a normalized ID
-    cfg.user_id = user.user_id.clone();
+    // Set UserID
+    cfg.user_id = normalize_user_id(&user.user_id);
 
-    // 6. Hydrate AI Config
-    // Corresponding Go: s.hydrateBacktestAIConfig(&cfg)
+    // Hydrate AI Config
     if let Err(e) = hydrate_backtest_ai_config(&state, &mut cfg).await {
         return (
             StatusCode::BAD_REQUEST,
@@ -109,9 +109,7 @@ pub async fn handle_backtest_start(
             .into_response();
     }
 
-    // 7. Start Backtest
-    // Corresponding Go: s.backtestManager.Start(context.Background(), cfg)
-    // Note: In Rust, async context is implicit.
+    // Start Backtest
     match manager.start(cfg).await {
         Ok(runner) => {
             // Get metadata from the runner instance
@@ -129,18 +127,10 @@ pub async fn handle_backtest_start(
 // hydrate_backtest_ai_config
 // Populates the BacktestConfig with sensitive AI credentials from the database.
 pub async fn hydrate_backtest_ai_config(state: &AppState, cfg: &mut BacktestConfig) -> Result<()> {
-    // 1. Basic Nil/Ready Checks
-    // In Rust, 'cfg' cannot be nil if passed by reference.
-    // 'state.store' availability depends on how you structure AppState.
-    // If it's wrapped in Option, check it here. Assuming standard setup:
-    // if state.store_is_not_ready() { return Err(...) }
-
-    // 2. Normalize Inputs
-    // cfg.user_id = normalize_user_id(&cfg.user_id); // Assuming helper exists, or just trim:
     cfg.user_id = cfg.user_id.trim().to_string();
     let model_id_input = cfg.ai_model_id.trim().to_string();
 
-    // 3. Retrieve Model from Store
+    // Retrieve Model from Store
     let model = if !model_id_input.is_empty() {
         // Case A: Model ID provided
         state
@@ -165,7 +155,7 @@ pub async fn hydrate_backtest_ai_config(state: &AppState, cfg: &mut BacktestConf
         default_model
     };
 
-    // 4. Validate Model Status
+    // Validate Model Status
     if !model.enabled {
         return Err(anyhow!("AI model {} is not enabled yet", model.name));
     }
@@ -178,7 +168,7 @@ pub async fn hydrate_backtest_ai_config(state: &AppState, cfg: &mut BacktestConf
         ));
     }
 
-    // 5. Populate AI Config
+    // Populate AI Config
     cfg.ai_cfg.provider = model.provider.trim().to_lowercase();
     cfg.ai_cfg.api_key = api_key.to_string();
 
@@ -195,7 +185,7 @@ pub async fn hydrate_backtest_ai_config(state: &AppState, cfg: &mut BacktestConf
     // Final trim ensure
     cfg.ai_cfg.model = cfg.ai_cfg.model.trim().to_string();
 
-    // 6. Provider-Specific Validation (e.g., "custom")
+    // Provider-Specific Validation (e.g., "custom")
     if cfg.ai_cfg.provider == "custom" {
         if cfg.ai_cfg.base_url.is_empty() {
             return Err(anyhow!("Custom AI model requires API URL configuration"));
@@ -213,22 +203,22 @@ pub async fn ensure_backtest_run_ownership(
     run_id: &str,
     user_id: &str,
 ) -> Result<RunMetadata> {
-    // 1. Check Manager Availability
+    // Check Manager Availability
     let manager = state
         .backtest_manager
         .as_ref()
         .ok_or_else(|| anyhow!("backtest manager unavailable"))?;
 
-    // 2. Load Metadata
+    // Load Metadata
     let meta = manager.load_metadata(run_id).await?;
 
-    // 3. Check Admin/System Bypass
+    // Check Admin/System Bypass
     // Corresponding Go: if userID == "" || userID == "admin"
     if user_id.is_empty() || user_id == "admin" {
         return Ok(meta);
     }
 
-    // 4. Check Owner
+    // Check Owner
     if meta.user_id.is_none() {
         return Ok(meta);
     }
@@ -266,7 +256,7 @@ where
     F: FnOnce(String) -> Fut,
     Fut: Future<Output = anyhow::Result<()>>,
 {
-    // 1. Check Manager Availability
+    // Check Manager Availability
     let manager = match state.backtest_manager.as_ref() {
         Some(m) => m,
         None => {
@@ -278,7 +268,7 @@ where
         }
     };
 
-    // 2. Validate Input
+    // Validate Input
     if req.run_id.trim().is_empty() {
         return (
             StatusCode::BAD_REQUEST,
@@ -287,10 +277,10 @@ where
             .into_response();
     }
 
-    let user_id = user.user_id.trim();
+    let user_id = normalize_user_id(&user.user_id);
 
-    // 3. Verify Ownership
-    if let Err(e) = ensure_backtest_run_ownership(&state, &req.run_id, user_id).await {
+    // Verify Ownership
+    if let Err(e) = ensure_backtest_run_ownership(&state, &req.run_id, &user_id).await {
         // Map access errors (Forbidden vs generic error)
         let err_msg = e.to_string();
         let status = if err_msg.contains("Forbidden") {
@@ -301,8 +291,7 @@ where
         return (status, Json(json!({ "error": err_msg }))).into_response();
     }
 
-    // 4. Execute the specific action (Stop, Pause, etc.)
-    // Corresponding Go: if err := fn(req.RunID); err != nil
+    // Execute the specific action (Stop, Pause, etc.)
     if let Err(e) = action(req.run_id.clone()).await {
         return (
             StatusCode::BAD_REQUEST,
@@ -311,8 +300,7 @@ where
             .into_response();
     }
 
-    // 5. Load Metadata for response
-    // Corresponding Go: meta, err := s.backtestManager.LoadMetadata(req.RunID)
+    // Load Metadata for response
     match manager.load_metadata(&req.run_id).await {
         Ok(meta) => {
             // Success with metadata
@@ -390,12 +378,12 @@ pub async fn handle_backtest_stop(
     .await
 }
 
-fn query_int(params: &HashMap<String, String>, name: &str, fallback: i32) -> i32 {
+fn query_int(params: &HashMap<String, String>, name: &str, fallback: usize) -> usize {
     params
-        .get(name) // 1. Try to get the string value
-        .map(|s| s.trim()) // 2. Trim whitespace (optional but recommended)
-        .and_then(|s| s.parse::<i32>().ok()) // 3. Try to parse to i32, convert Result to Option
-        .unwrap_or(fallback) // 4. Return value or fallback if None
+        .get(name)
+        .map(|s| s.trim())
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(fallback)
 }
 
 // handle_backtest_label
@@ -404,7 +392,7 @@ pub async fn handle_backtest_label(
     Extension(user): Extension<AuthUser>,
     Json(req): Json<LabelRequest>,
 ) -> impl IntoResponse {
-    // 1. Check Manager Availability
+    // Check Manager Availability
     let manager = match state.backtest_manager.as_ref() {
         Some(m) => m,
         None => {
@@ -416,7 +404,7 @@ pub async fn handle_backtest_label(
         }
     };
 
-    // 2. Validate Inputs
+    // Validate Inputs
     let run_id = req.run_id.trim();
     if run_id.is_empty() {
         return (
@@ -426,10 +414,10 @@ pub async fn handle_backtest_label(
             .into_response();
     }
 
-    let user_id = user.user_id.trim();
+    let user_id = normalize_user_id(&user.user_id);
 
-    // 3. Verify Ownership
-    if let Err(e) = ensure_backtest_run_ownership(&state, run_id, user_id).await {
+    // Verify Ownership
+    if let Err(e) = ensure_backtest_run_ownership(&state, run_id, &user_id).await {
         // Map access errors (Forbidden vs generic error)
         let err_msg = e.to_string();
         let status = if err_msg.contains("Forbidden") {
@@ -440,7 +428,7 @@ pub async fn handle_backtest_label(
         return (status, Json(json!({ "error": err_msg }))).into_response();
     }
 
-    // 4. Update Label
+    // Update Label
     match manager.update_label(run_id, &req.label).await {
         Ok(meta) => {
             // Success
@@ -463,7 +451,7 @@ pub async fn handle_backtest_delete(
     Extension(user): Extension<AuthUser>,
     Json(req): Json<RunIdRequest>,
 ) -> impl IntoResponse {
-    // 1. Check Manager Availability
+    // Check Manager Availability
     let manager = match state.backtest_manager.as_ref() {
         Some(m) => m,
         None => {
@@ -475,7 +463,7 @@ pub async fn handle_backtest_delete(
         }
     };
 
-    // 2. Validate Inputs
+    // Validate Inputs
     let run_id = req.run_id.trim();
     if run_id.is_empty() {
         return (
@@ -485,10 +473,10 @@ pub async fn handle_backtest_delete(
             .into_response();
     }
 
-    let user_id = user.user_id.trim();
+    let user_id = normalize_user_id(&user.user_id);
 
-    // 3. Verify Ownership
-    if let Err(e) = ensure_backtest_run_ownership(&state, run_id, user_id).await {
+    // Verify Ownership
+    if let Err(e) = ensure_backtest_run_ownership(&state, run_id, &user_id).await {
         // Map access errors (Forbidden vs generic error)
         let err_msg = e.to_string();
         let status = if err_msg.contains("Forbidden") {
@@ -499,7 +487,7 @@ pub async fn handle_backtest_delete(
         return (status, Json(json!({ "error": err_msg }))).into_response();
     }
 
-    // 4. Delete Backtest Run
+    // Delete Backtest Run
     if let Err(e) = manager.delete(run_id).await {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -508,7 +496,7 @@ pub async fn handle_backtest_delete(
             .into_response();
     }
 
-    // 5. Return Success
+    // Return Success
     (StatusCode::OK, Json(json!({ "message": "deleted" }))).into_response()
 }
 
@@ -518,7 +506,7 @@ pub async fn handle_backtest_status(
     Extension(user): Extension<AuthUser>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    // 1. Check Manager Availability
+    // Check Manager Availability
     let manager = match state.backtest_manager.as_ref() {
         Some(m) => m,
         None => {
@@ -530,8 +518,8 @@ pub async fn handle_backtest_status(
         }
     };
 
-    // 2. Validate Inputs
-    let user_id = user.user_id.trim();
+    // Validate Inputs
+    let user_id = normalize_user_id(&user.user_id);
 
     let run_id = match params.get("run_id") {
         Some(id) if !id.trim().is_empty() => id,
@@ -544,8 +532,8 @@ pub async fn handle_backtest_status(
         }
     };
 
-    // 3. Verify Ownership & Get Metadata
-    let meta = match ensure_backtest_run_ownership(&state, run_id, user_id).await {
+    // Verify Ownership & Get Metadata
+    let meta = match ensure_backtest_run_ownership(&state, run_id, &user_id).await {
         Ok(m) => m,
         Err(e) => {
             // Corresponding Go: writeBacktestAccessError(c, err)
@@ -560,12 +548,12 @@ pub async fn handle_backtest_status(
         }
     };
 
-    // 4. Check for Active Status (In-Memory)
+    // Check for Active Status (In-Memory)
     if let Some(active_status) = manager.status(run_id).await {
         return Json(active_status).into_response();
     }
 
-    // 5. Construct Fallback Payload from Metadata
+    // Construct Fallback Payload from Metadata
     let payload = StatusPayload {
         run_id: meta.run_id.clone(),
         state: meta.state.clone(),
@@ -591,7 +579,7 @@ pub async fn handle_backtest_runs(
     Extension(user): Extension<AuthUser>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    // 1. Check Manager Availability
+    // Check Manager Availability
     let manager = match state.backtest_manager.as_ref() {
         Some(m) => m,
         None => {
@@ -603,13 +591,13 @@ pub async fn handle_backtest_runs(
         }
     };
 
-    // 2. User Context & Permissions
-    let raw_user_id = user.user_id.trim();
+    // User Context & Permissions
+    let raw_user_id = normalize_user_id(&user.user_id);
 
     // Logic: If user is not empty and not admin, we restrict results to their own runs
     let filter_by_user = !raw_user_id.is_empty() && raw_user_id != "admin";
 
-    // 3. List Runs
+    // List Runs
     let metas = match manager.list_runs().await {
         Ok(m) => m,
         Err(e) => {
@@ -621,43 +609,30 @@ pub async fn handle_backtest_runs(
         }
     };
 
-    // 4. Parse Query Parameters
-    // Corresponding Go: stateFilter := strings.ToLower(...)
+    // Parse Query Parameters
     let state_filter = params
         .get("state")
         .map(|s| s.trim().to_lowercase())
         .unwrap_or_default();
 
-    // Corresponding Go: search := strings.ToLower(...)
     let search = params
         .get("search")
         .map(|s| s.trim().to_lowercase())
         .unwrap_or_default();
 
-    // Helper for int parsing (similar to Go's queryInt)
-    let parse_usize = |key: &str, default: usize| -> usize {
-        params
-            .get(key)
-            .and_then(|s| s.parse::<usize>().ok())
-            .unwrap_or(default)
-    };
-
-    // Corresponding Go: limit := queryInt(c, "limit", 50) ...
-    let mut limit = parse_usize("limit", 50);
+    let mut limit = query_int(&params, "limit", 50);
     if limit == 0 {
         limit = 50;
     }
 
-    // Corresponding Go: offset := queryInt(c, "offset", 0)
-    let offset = parse_usize("offset", 0);
+    let offset = query_int(&params, "offset", 0);
 
-    // 5. Apply Filters
+    // Apply Filters
     // We collect references to the original metadata to avoid cloning strings unnecessarily
     let filtered: Vec<_> = metas
         .iter()
         .filter(|meta| {
             // Filter by State
-            // Corresponding Go: if stateFilter != "" && !strings.EqualFold(...)
             if !state_filter.is_empty() && meta.state.as_str().to_lowercase() != state_filter {
                 return false;
             }
@@ -682,8 +657,6 @@ pub async fn handle_backtest_runs(
             // Corresponding Go: if filterByUser ...
             if filter_by_user {
                 let owner = meta.user_id.clone().unwrap_or_default().trim().to_string();
-                // Go: if owner != "" && owner != userID { continue }
-                // Logic: If run has an owner, and that owner isn't me, skip it.
                 if !owner.is_empty() && owner != raw_user_id {
                     return false;
                 }
@@ -696,14 +669,14 @@ pub async fn handle_backtest_runs(
     // 6. Pagination Logic
     let total = filtered.len();
 
-    // Calculate safe slice bounds (Go: filtered[start:end])
+    // Calculate safe slice bounds
     let start = offset.min(total);
     let end = (offset + limit).min(total);
 
     // Slice the vector. Axum/Serde will serialize the slice as a JSON array.
     let page = &filtered[start..end];
 
-    // 7. Return Response
+    // Return Response
     Json(json!({
         "total": total,
         "items": page,
@@ -717,7 +690,7 @@ pub async fn handle_backtest_equity(
     Extension(user): Extension<AuthUser>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    // 1. Check Manager Availability
+    // Check Manager Availability
     let manager = match state.backtest_manager.as_ref() {
         Some(m) => m,
         None => {
@@ -729,7 +702,7 @@ pub async fn handle_backtest_equity(
         }
     };
 
-    // 2. Validate Run ID
+    // Validate Run ID
     let run_id = match params.get("run_id") {
         Some(id) if !id.trim().is_empty() => id,
         _ => {
@@ -741,10 +714,10 @@ pub async fn handle_backtest_equity(
         }
     };
 
-    let user_id = user.user_id.trim();
+    let user_id = normalize_user_id(&user.user_id);
 
-    // 3. Verify Ownership
-    if let Err(e) = ensure_backtest_run_ownership(&state, run_id, user_id).await {
+    // Verify Ownership
+    if let Err(e) = ensure_backtest_run_ownership(&state, run_id, &user_id).await {
         // Map access errors (Forbidden vs generic error)
         let err_msg = e.to_string();
         let status = if err_msg.contains("Forbidden") {
@@ -755,30 +728,22 @@ pub async fn handle_backtest_equity(
         return (status, Json(json!({ "error": err_msg }))).into_response();
     }
 
-    // 4. Parse Query Parameters
+    // Parse Query Parameters
     let timeframe = params.get("tf").map(|s| s.as_str()).unwrap_or("");
 
-    // Corresponding Go: limit := queryInt(c, "limit", 1000)
-    let limit = params
-        .get("limit")
-        .and_then(|s| s.parse::<i64>().ok())
-        .unwrap_or(1000);
+    let limit = query_int(&params, "limit", 1000);
 
-    // 5. Load Equity Data
-    // Corresponding Go: s.backtestManager.LoadEquity(runID, timeframe, limit)
-    match manager.load_equity(run_id, timeframe, limit as usize).await {
+    // Load Equity Data
+    match manager.load_equity(run_id, timeframe, limit).await {
         Ok(points) => {
             // Return JSON response
             Json(points).into_response()
         }
-        Err(e) => {
-            // Corresponding Go: c.JSON(http.StatusBadRequest, ...)
-            (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response()
-        }
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": e.to_string() })),
+        )
+            .into_response(),
     }
 }
 
@@ -788,7 +753,7 @@ pub async fn handle_backtest_trades(
     Extension(user): Extension<AuthUser>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    // 1. Check Manager Availability
+    // Check Manager Availability
     let manager = match state.backtest_manager.as_ref() {
         Some(m) => m,
         None => {
@@ -800,7 +765,7 @@ pub async fn handle_backtest_trades(
         }
     };
 
-    // 2. Validate Run ID
+    // Validate Run ID
     let run_id = match params.get("run_id") {
         Some(id) if !id.trim().is_empty() => id,
         _ => {
@@ -812,10 +777,10 @@ pub async fn handle_backtest_trades(
         }
     };
 
-    let user_id = user.user_id.trim();
+    let user_id = normalize_user_id(&user.user_id);
 
-    // 3. Verify Ownership
-    if let Err(e) = ensure_backtest_run_ownership(&state, run_id, user_id).await {
+    // Verify Ownership
+    if let Err(e) = ensure_backtest_run_ownership(&state, run_id, &user_id).await {
         // Map access errors (Forbidden vs generic error)
         let err_msg = e.to_string();
         let status = if err_msg.contains("Forbidden") {
@@ -826,15 +791,11 @@ pub async fn handle_backtest_trades(
         return (status, Json(json!({ "error": err_msg }))).into_response();
     }
 
-    // 4. Parse Query Parameters (Limit)
-    // Corresponding Go: limit := queryInt(c, "limit", 1000)
-    let limit = params
-        .get("limit")
-        .and_then(|s| s.parse::<i64>().ok())
-        .unwrap_or(1000);
+    // Parse Query Parameters (Limit)
+    let limit = query_int(&params, "limit", 1000);
 
-    // 5. Load Trades
-    match manager.load_trades(run_id, limit as usize).await {
+    // Load Trades
+    match manager.load_trades(run_id, limit).await {
         Ok(events) => {
             // Return JSON response
             Json(events).into_response()
@@ -853,7 +814,7 @@ pub async fn handle_backtest_metrics(
     Extension(user): Extension<AuthUser>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    // 1. Check Manager Availability
+    // Check Manager Availability
     let manager = match state.backtest_manager.as_ref() {
         Some(m) => m,
         None => {
@@ -865,13 +826,10 @@ pub async fn handle_backtest_metrics(
         }
     };
 
-    // 2. Normalize User ID
-    // Corresponding Go: userID := normalizeUserID(...)
-    // Assuming simple trim, or use a helper function if you have complex normalization logic
-    let user_id = user.user_id.trim();
+    // Normalize User ID
+    let user_id = normalize_user_id(&user.user_id);
 
-    // 3. Get Run ID
-    // Corresponding Go: runID := c.Query("run_id")
+    // Get Run ID
     let run_id = match params.get("run_id") {
         Some(id) if !id.trim().is_empty() => id.trim(),
         _ => {
@@ -883,9 +841,8 @@ pub async fn handle_backtest_metrics(
         }
     };
 
-    // 4. Verify Ownership
-    // Corresponding Go: s.ensureBacktestRunOwnership(runID, userID)
-    if let Err(e) = ensure_backtest_run_ownership(&state, run_id, user_id).await {
+    // Verify Ownership
+    if let Err(e) = ensure_backtest_run_ownership(&state, run_id, &user_id).await {
         // Map access errors (Forbidden vs generic error) to match writeBacktestAccessError logic
         let err_msg = e.to_string();
         let status = if err_msg.contains("Forbidden") {
@@ -896,8 +853,7 @@ pub async fn handle_backtest_metrics(
         return (status, Json(json!({ "error": err_msg }))).into_response();
     }
 
-    // 5. Get Metrics
-    // Corresponding Go: s.backtestManager.GetMetrics(runID)
+    // Get Metrics
     match manager.get_metrics(run_id).await {
         Ok(metrics) => {
             // Success
@@ -905,10 +861,6 @@ pub async fn handle_backtest_metrics(
         }
         Err(e) => {
             // 6. Handle "Not Ready" Logic
-            // Corresponding Go: if errors.Is(err, sql.ErrNoRows) || errors.Is(err, os.ErrNotExist)
-
-            // In Rust (assuming 'e' is an anyhow::Error or Box<dyn Error>),
-            // we check if the underlying error is a "Not Found" type.
             let is_not_found = {
                 // Check if it's a SQLx RowNotFound error
                 if let Some(sqlx_err) = e.downcast_ref::<sqlx::Error>() {
@@ -950,7 +902,7 @@ pub async fn handle_backtest_trace(
     Extension(user): Extension<AuthUser>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    // 1. Check Manager Availability
+    // Check Manager Availability
     let manager = match state.backtest_manager.as_ref() {
         Some(m) => m,
         None => {
@@ -962,7 +914,7 @@ pub async fn handle_backtest_trace(
         }
     };
 
-    // 2. Validate Run ID
+    // Validate Run ID
     let run_id = match params.get("run_id") {
         Some(id) if !id.trim().is_empty() => id.trim(),
         _ => {
@@ -974,10 +926,10 @@ pub async fn handle_backtest_trace(
         }
     };
 
-    let user_id = user.user_id.trim();
+    let user_id = normalize_user_id(&user.user_id);
 
-    // 3. Verify Ownership
-    if let Err(e) = ensure_backtest_run_ownership(&state, run_id, user_id).await {
+    // Verify Ownership
+    if let Err(e) = ensure_backtest_run_ownership(&state, run_id, &user_id).await {
         let err_msg = e.to_string();
         let status = if err_msg.contains("Forbidden") {
             StatusCode::FORBIDDEN
@@ -987,15 +939,11 @@ pub async fn handle_backtest_trace(
         return (status, Json(json!({ "error": err_msg }))).into_response();
     }
 
-    // 4. Parse Cycle Parameter
-    let cycle = params
-        .get("cycle")
-        .and_then(|s| s.parse::<i32>().ok())
-        .unwrap_or(0);
+    // Parse Cycle Parameter
+    let cycle = query_int(&params, "cycle", 0);
 
-    // 5. Get Trace Record
-    // Corresponding Go: s.backtestManager.GetTrace(runID, cycle)
-    match manager.get_trace(run_id, cycle).await {
+    // Get Trace Record
+    match manager.get_trace(run_id, cycle as i32).await {
         Ok(record) => Json(record).into_response(),
         Err(e) => (
             StatusCode::NOT_FOUND,
@@ -1011,8 +959,7 @@ pub async fn handle_backtest_decisions(
     Extension(user): Extension<AuthUser>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    // 1. Check Manager Availability
-    // Corresponding Go: if s.backtestManager == nil
+    // Check Manager Availability
     if state.backtest_manager.is_none() {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -1021,8 +968,7 @@ pub async fn handle_backtest_decisions(
             .into_response();
     }
 
-    // 2. Validate Inputs
-    // Corresponding Go: runID := c.Query("run_id")
+    // Validate Inputs
     let run_id = match params.get("run_id") {
         Some(id) if !id.trim().is_empty() => id.trim(),
         _ => {
@@ -1034,11 +980,10 @@ pub async fn handle_backtest_decisions(
         }
     };
 
-    let user_id = user.user_id.trim();
+    let user_id = normalize_user_id(&user.user_id);
 
-    // 3. Verify Ownership
-    // Corresponding Go: s.ensureBacktestRunOwnership(runID, userID)
-    if let Err(e) = ensure_backtest_run_ownership(&state, run_id, user_id).await {
+    // Verify Ownership
+    if let Err(e) = ensure_backtest_run_ownership(&state, run_id, &user_id).await {
         // Map access errors
         let err_msg = e.to_string();
         let status = if err_msg.contains("Forbidden") {
@@ -1049,18 +994,10 @@ pub async fn handle_backtest_decisions(
         return (status, Json(json!({ "error": err_msg }))).into_response();
     }
 
-    // 4. Pagination Logic
-    // Corresponding Go: limit := queryInt(c, "limit", 20)
-    let mut limit = params
-        .get("limit")
-        .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(20);
+    // Pagination Logic
+    let mut limit = query_int(&params, "limit", 20);
 
-    // Corresponding Go: offset := queryInt(c, "offset", 0)
-    let mut offset = params
-        .get("offset")
-        .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(0);
+    let offset = query_int(&params, "offset", 0);
 
     // Clamping logic
     if limit <= 0 {
@@ -1069,25 +1006,18 @@ pub async fn handle_backtest_decisions(
     if limit > 200 {
         limit = 200;
     }
-    if offset < 0 {
-        offset = 0;
-    }
 
-    // 5. Load Decision Records
-    // Corresponding Go: backtest.LoadDecisionRecords(runID, limit, offset)
+    // Load Decision Records
     match load_decision_records(run_id, limit, offset).await {
         Ok(records) => {
             // Success
             Json(records).into_response()
         }
-        Err(e) => {
-            // Corresponding Go: c.JSON(http.StatusInternalServerError, ...)
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response()
-        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )
+            .into_response(),
     }
 }
 
@@ -1097,7 +1027,7 @@ pub async fn handle_backtest_export(
     Extension(user): Extension<AuthUser>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    // 1. Check Manager Availability
+    // Check Manager Availability
     let manager = match state.backtest_manager.as_ref() {
         Some(m) => m,
         None => {
@@ -1109,10 +1039,10 @@ pub async fn handle_backtest_export(
         }
     };
 
-    // 2. Normalize User
-    let user_id = user.user_id.trim();
+    // Normalize User
+    let user_id = normalize_user_id(&user.user_id);
 
-    // 3. Get Run ID
+    // Get Run ID
     let run_id = match params.get("run_id") {
         Some(id) if !id.trim().is_empty() => id.trim(),
         _ => {
@@ -1124,8 +1054,8 @@ pub async fn handle_backtest_export(
         }
     };
 
-    // 4. Verify Ownership
-    if let Err(e) = ensure_backtest_run_ownership(&state, run_id, user_id).await {
+    // Verify Ownership
+    if let Err(e) = ensure_backtest_run_ownership(&state, run_id, &user_id).await {
         let err_msg = e.to_string();
         let status = if err_msg.contains("Forbidden") {
             StatusCode::FORBIDDEN
@@ -1135,7 +1065,7 @@ pub async fn handle_backtest_export(
         return (status, Json(json!({ "error": err_msg }))).into_response();
     }
 
-    // 5. Generate Export
+    // Generate Export
     let path_buf = match manager.export_run(run_id).await {
         Ok(p) => PathBuf::from(p), // Ensure it's a PathBuf
         Err(e) => {
@@ -1147,7 +1077,7 @@ pub async fn handle_backtest_export(
         }
     };
 
-    // 6. Open File for Streaming
+    // Open File for Streaming
     let file = match File::open(&path_buf).await {
         Ok(f) => f,
         Err(e) => {
@@ -1161,7 +1091,7 @@ pub async fn handle_backtest_export(
         }
     };
 
-    // 7. Create Stream with Cleanup Guard
+    // Create Stream with Cleanup Guard
     // Convert file to a stream
     let stream = ReaderStream::new(file);
 
@@ -1176,8 +1106,7 @@ pub async fn handle_backtest_export(
         chunk
     });
 
-    // 8. Build Response
-    // Corresponding Go: c.FileAttachment(path, filename)
+    // Build Response
     let filename = format!("{}_export.zip", run_id);
     let body = Body::from_stream(stream_with_cleanup);
 
