@@ -2,20 +2,20 @@ use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::sync::OnceLock;
-use std::time::{Instant};
+use std::time::Instant;
 
-use crate::strategy_engine::QuantData;
 use super::strategy_engine::StrategyEngine;
-use anyhow::{anyhow, Context as AnyhowContext, Result};
+use crate::strategy_engine::QuantData;
+use anyhow::{Context as AnyhowContext, Result, anyhow};
 use chrono::{DateTime, Utc};
+use market::data::get_with_timeframes;
+use market::data::{format_data, get};
+use market::types::Data;
+use mcp::client::Client;
+use pool::coin_pool::CoinPoolClient;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use market::types::Data;
-use market::data::get_with_timeframes;
-use market::data::{get, format_data};
-use mcp::{client::Client};
-use pool::coin_pool::CoinPoolClient;
-use tracing::{info, warn, instrument};
+use tracing::{info, instrument, warn};
 
 static RE_JSON_FENCE: OnceLock<Regex> = OnceLock::new();
 static RE_JSON_ARRAY: OnceLock<Regex> = OnceLock::new();
@@ -132,7 +132,7 @@ pub struct Context {
     pub trading_stats: Option<TradingStats>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub recent_orders: Vec<RecentOrder>,
-    
+
     // Internal maps (not serialized to JSON for prompts)
     #[serde(skip)]
     pub market_data_map: HashMap<String, Data>,
@@ -166,7 +166,7 @@ pub struct Decision {
     pub confidence: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub risk_usd: Option<f64>,
-    
+
     // Reasoning usually comes from XML, but if inside JSON
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<String>,
@@ -183,17 +183,19 @@ pub struct FullDecision {
 }
 
 /// GetFullDecisionWithStrategy uses StrategyEngine to get AI decision
-pub async fn get_full_decision_with_strategy (
+pub async fn get_full_decision_with_strategy(
     ctx: &mut Context,
     mcp_client: &Client,
     engine: &Option<StrategyEngine>,
     variant: &str,
     oi_client: &CoinPoolClient,
 ) -> Result<FullDecision> {
-    
     let engine = match engine {
         Some(e) => e,
-        None => return get_full_decision_with_custom_prompt(ctx, mcp_client, "", false, "", oi_client).await,
+        None => {
+            return get_full_decision_with_custom_prompt(ctx, mcp_client, "", false, "", oi_client)
+                .await;
+        }
     };
 
     // Fetch market data using strategy config
@@ -206,14 +208,17 @@ pub async fn get_full_decision_with_strategy (
         let mut map = HashMap::new();
         if let Ok(oi_positions) = oi_client.get_oi_top_positions().await {
             for pos in oi_positions {
-                map.insert(pos.symbol.clone(), OITopData {
-                    rank: pos.rank,
-                    oi_delta_percent: pos.oi_delta_percent,
-                    oi_delta_value: pos.oi_delta_value,
-                    price_delta_percent: pos.price_delta_percent,
-                    net_long: pos.net_long,
-                    net_short: pos.net_short,
-                });
+                map.insert(
+                    pos.symbol.clone(),
+                    OITopData {
+                        rank: pos.rank,
+                        oi_delta_percent: pos.oi_delta_percent,
+                        oi_delta_value: pos.oi_delta_value,
+                        price_delta_percent: pos.price_delta_percent,
+                        net_long: pos.net_long,
+                        net_short: pos.net_short,
+                    },
+                );
             }
         }
         ctx.oi_top_data_map = Some(map);
@@ -226,7 +231,9 @@ pub async fn get_full_decision_with_strategy (
 
     // Call AI API
     let start_time = Instant::now();
-    let ai_response = mcp_client.call_with_messages(&system_prompt, &user_prompt).await?;
+    let ai_response = mcp_client
+        .call_with_messages(&system_prompt, &user_prompt)
+        .await?;
     let duration = start_time.elapsed();
 
     // Parse Response
@@ -250,7 +257,7 @@ pub async fn get_full_decision_with_strategy (
 async fn fetch_market_data_with_strategy(ctx: &mut Context, engine: &StrategyEngine) -> Result<()> {
     let config = engine.get_config();
     let kline_config = &config.indicators.klines;
-    
+
     let mut timeframes = kline_config.selected_timeframes.clone();
     let mut primary_tf = kline_config.primary_timeframe.clone();
     let mut kline_count = kline_config.primary_count;
@@ -274,7 +281,10 @@ async fn fetch_market_data_with_strategy(ctx: &mut Context, engine: &StrategyEng
         kline_count = 30;
     }
 
-    info!("📊 Strategy timeframes: {:?}, Primary: {}, Kline count: {}", timeframes, &primary_tf, kline_count);
+    info!(
+        "📊 Strategy timeframes: {:?}, Primary: {}, Kline count: {}",
+        timeframes, &primary_tf, kline_count
+    );
 
     // Fetch data for position coins
     for pos in &ctx.positions {
@@ -283,13 +293,17 @@ async fn fetch_market_data_with_strategy(ctx: &mut Context, engine: &StrategyEng
                 ctx.market_data_map.insert(pos.symbol.clone(), data);
             }
             Err(e) => {
-                info!("⚠️  Failed to fetch market data for position {}: {:?}", pos.symbol, e);
+                info!(
+                    "⚠️  Failed to fetch market data for position {}: {:?}",
+                    pos.symbol, e
+                );
             }
         }
     }
 
     // Fetch data for candidate coins
-    let position_symbols: HashSet<String> = ctx.positions.iter().map(|p| p.symbol.clone()).collect();
+    let position_symbols: HashSet<String> =
+        ctx.positions.iter().map(|p| p.symbol.clone()).collect();
     const MIN_OI_THRESHOLD_MILLIONS: f64 = 15.0;
 
     for coin in &ctx.candidate_coins {
@@ -303,35 +317,43 @@ async fn fetch_market_data_with_strategy(ctx: &mut Context, engine: &StrategyEng
                 let is_existing_position = position_symbols.contains(&coin.symbol);
                 if !is_existing_position {
                     if let Some(oi) = &data.open_interest {
-                         let oi_value = oi.latest * data.current_price;
-                         let oi_value_millions = oi_value / 1_000_000.0;
-                         if oi_value_millions < MIN_OI_THRESHOLD_MILLIONS {
-                             info!("⚠️  {} OI value too low ({:.2}M USD < {:.1}M), skipping",
-                                coin.symbol, oi_value_millions, MIN_OI_THRESHOLD_MILLIONS);
-                             continue;
-                         }
+                        let oi_value = oi.latest * data.current_price;
+                        let oi_value_millions = oi_value / 1_000_000.0;
+                        if oi_value_millions < MIN_OI_THRESHOLD_MILLIONS {
+                            info!(
+                                "⚠️  {} OI value too low ({:.2}M USD < {:.1}M), skipping",
+                                coin.symbol, oi_value_millions, MIN_OI_THRESHOLD_MILLIONS
+                            );
+                            continue;
+                        }
                     }
                 }
                 ctx.market_data_map.insert(coin.symbol.clone(), data);
             }
             Err(e) => {
-                info!("⚠️  Failed to fetch market data for {}: {:?}", coin.symbol, e);
+                info!(
+                    "⚠️  Failed to fetch market data for {}: {:?}",
+                    coin.symbol, e
+                );
             }
         }
     }
 
-    info!("📊 Successfully fetched multi-timeframe market data for {} coins", ctx.market_data_map.len());
+    info!(
+        "📊 Successfully fetched multi-timeframe market data for {} coins",
+        ctx.market_data_map.len()
+    );
     Ok(())
 }
 
 /// Legacy/Custom Prompt Entry Point
-pub async fn get_full_decision_with_custom_prompt (
+pub async fn get_full_decision_with_custom_prompt(
     ctx: &mut Context,
     mcp_client: &Client,
     custom_prompt: &str,
     override_base: bool,
     template_name: &str,
-    oi_client: &CoinPoolClient
+    oi_client: &CoinPoolClient,
 ) -> Result<FullDecision> {
     // Fetch Market Data
     if ctx.market_data_map.is_empty() {
@@ -354,7 +376,9 @@ pub async fn get_full_decision_with_custom_prompt (
 
     // Call AI
     let start_time = Instant::now();
-    let ai_response = mcp_client.call_with_messages(&system_prompt, &user_prompt).await?;
+    let ai_response = mcp_client
+        .call_with_messages(&system_prompt, &user_prompt)
+        .await?;
     let duration = start_time.elapsed();
 
     let mut decision = parse_full_decision_response(
@@ -372,7 +396,10 @@ pub async fn get_full_decision_with_custom_prompt (
     Ok(decision)
 }
 
-async fn fetch_market_data_for_context(ctx: &mut Context, oi_client: &CoinPoolClient) -> Result<()> {
+async fn fetch_market_data_for_context(
+    ctx: &mut Context,
+    oi_client: &CoinPoolClient,
+) -> Result<()> {
     // Logic similar to Strategy fetch but using simpler market::get
     let mut symbol_set = HashSet::new();
     for pos in &ctx.positions {
@@ -381,22 +408,25 @@ async fn fetch_market_data_for_context(ctx: &mut Context, oi_client: &CoinPoolCl
 
     let max_candidates = calculate_max_candidates(ctx);
     for (i, coin) in ctx.candidate_coins.iter().enumerate() {
-        if i >= max_candidates { break; }
+        if i >= max_candidates {
+            break;
+        }
         symbol_set.insert(coin.symbol.clone());
     }
-    
-    let position_symbols: HashSet<String> = ctx.positions.iter().map(|p| p.symbol.clone()).collect();
+
+    let position_symbols: HashSet<String> =
+        ctx.positions.iter().map(|p| p.symbol.clone()).collect();
     const MIN_OI_THRESHOLD_MILLIONS: f64 = 15.0;
 
     for symbol in symbol_set {
         if let Ok(data) = get(&symbol).await {
             let is_existing = position_symbols.contains(&symbol);
             if !is_existing {
-                 if let Some(oi) = &data.open_interest {
-                     if (oi.latest * data.current_price / 1_000_000.0) < MIN_OI_THRESHOLD_MILLIONS {
-                         continue;
-                     }
-                 }
+                if let Some(oi) = &data.open_interest {
+                    if (oi.latest * data.current_price / 1_000_000.0) < MIN_OI_THRESHOLD_MILLIONS {
+                        continue;
+                    }
+                }
             }
             ctx.market_data_map.insert(symbol, data);
         }
@@ -406,14 +436,17 @@ async fn fetch_market_data_for_context(ctx: &mut Context, oi_client: &CoinPoolCl
     let mut oi_map = HashMap::new();
     if let Ok(positions) = oi_client.get_oi_top_positions().await {
         for pos in positions {
-            oi_map.insert(pos.symbol.clone(), OITopData {
-                rank: pos.rank,
-                oi_delta_percent: pos.oi_delta_percent,
-                oi_delta_value: pos.oi_delta_value,
-                price_delta_percent: pos.price_delta_percent,
-                net_long: pos.net_long,
-                net_short: pos.net_short,
-            });
+            oi_map.insert(
+                pos.symbol.clone(),
+                OITopData {
+                    rank: pos.rank,
+                    oi_delta_percent: pos.oi_delta_percent,
+                    oi_delta_value: pos.oi_delta_value,
+                    price_delta_percent: pos.price_delta_percent,
+                    net_long: pos.net_long,
+                    net_short: pos.net_short,
+                },
+            );
         }
     }
     ctx.oi_top_data_map = Some(oi_map);
@@ -442,7 +475,7 @@ fn build_system_prompt_with_custom(
     if override_base && !custom_prompt.is_empty() {
         return custom_prompt.to_string();
     }
-    
+
     let base_prompt = build_system_prompt(equity, btc_eth_lev, alt_lev, template_name, variant);
     if custom_prompt.is_empty() {
         return base_prompt;
@@ -454,9 +487,15 @@ fn build_system_prompt_with_custom(
     )
 }
 
-fn build_system_prompt(equity: f64, btc_eth_lev: i32, alt_lev: i32, _template_name: &str, variant: &str) -> String {
+fn build_system_prompt(
+    equity: f64,
+    btc_eth_lev: i32,
+    alt_lev: i32,
+    _template_name: &str,
+    variant: &str,
+) -> String {
     let mut sb = String::new();
-    
+
     // In a real implementation, load template from file. Using hardcoded fallback for snippet.
     sb.push_str("You are a professional cryptocurrency trading AI...\n\n");
 
@@ -471,10 +510,23 @@ fn build_system_prompt(equity: f64, btc_eth_lev: i32, alt_lev: i32, _template_na
     write!(sb, "# Hard Constraints (Risk Control)\n\n").unwrap();
     sb.push_str("1. Risk/reward ratio: Must be ≥ 1:3\n");
     sb.push_str("2. Max positions: 3 coins\n");
-    write!(sb, "3. Single coin: Alt {:.0}-{:.0} U | BTC/ETH {:.0}-{:.0} U\n", equity*0.8, equity*1.5, equity*5.0, equity*10.0).unwrap();
-    write!(sb, "4. Leverage: Alt max {}x | BTC/ETH max {}x\n", alt_lev, btc_eth_lev).unwrap();
+    write!(
+        sb,
+        "3. Single coin: Alt {:.0}-{:.0} U | BTC/ETH {:.0}-{:.0} U\n",
+        equity * 0.8,
+        equity * 1.5,
+        equity * 5.0,
+        equity * 10.0
+    )
+    .unwrap();
+    write!(
+        sb,
+        "4. Leverage: Alt max {}x | BTC/ETH max {}x\n",
+        alt_lev, btc_eth_lev
+    )
+    .unwrap();
     sb.push_str("5. Margin usage ≤ 90%\n");
-    
+
     // ... Output format instructions (omitted for brevity, same as Go) ...
     sb.push_str("# Output Format\nMust use <reasoning> and <decision> tags.\n");
 
@@ -484,21 +536,31 @@ fn build_system_prompt(equity: f64, btc_eth_lev: i32, alt_lev: i32, _template_na
 pub fn build_user_prompt(ctx: &Context) -> String {
     let mut sb = String::new();
 
-    write!(sb, "Time: {} | Period: #{} | Runtime: {} minutes\n\n",
-        ctx.current_time, ctx.call_count, ctx.runtime_minutes).unwrap();
+    write!(
+        sb,
+        "Time: {} | Period: #{} | Runtime: {} minutes\n\n",
+        ctx.current_time, ctx.call_count, ctx.runtime_minutes
+    )
+    .unwrap();
 
     if let Some(btc) = ctx.market_data_map.get("BTCUSDT") {
-        write!(sb, "BTC: {:.2} (1h: {:+.2}%) | MACD: {:.4} | RSI: {:.2}\n\n",
-            btc.current_price, btc.price_change_1h, btc.current_macd, btc.current_rsi7).unwrap();
+        write!(
+            sb,
+            "BTC: {:.2} (1h: {:+.2}%) | MACD: {:.4} | RSI: {:.2}\n\n",
+            btc.current_price, btc.price_change_1h, btc.current_macd, btc.current_rsi7
+        )
+        .unwrap();
     }
 
     // Account
     let balance_pct = if ctx.account.total_equity > 0.0 {
         (ctx.account.available_balance / ctx.account.total_equity) * 100.0
-    } else { 0.0 };
-    
+    } else {
+        0.0
+    };
+
     write!(sb, "Account: Equity {:.2} | Balance {:.2} ({:.1}%) | PnL {:+.2}% | Margin {:.1}% | Positions {}\n\n",
-        ctx.account.total_equity, ctx.account.available_balance, balance_pct, 
+        ctx.account.total_equity, ctx.account.available_balance, balance_pct,
         ctx.account.total_pnl_pct, ctx.account.margin_used_pct, ctx.account.position_count).unwrap();
 
     // Positions
@@ -507,9 +569,17 @@ pub fn build_user_prompt(ctx: &Context) -> String {
         for (i, pos) in ctx.positions.iter().enumerate() {
             // ... Time calculation logic ...
             let val = pos.quantity.abs() * pos.mark_price;
-            write!(sb, "{}. {} {} | Value {:.2} USDT | PnL {:+.2}%\n\n", 
-                i+1, pos.symbol, pos.side, val, pos.unrealized_pnl_pct).unwrap();
-            
+            write!(
+                sb,
+                "{}. {} {} | Value {:.2} USDT | PnL {:+.2}%\n\n",
+                i + 1,
+                pos.symbol,
+                pos.side,
+                val,
+                pos.unrealized_pnl_pct
+            )
+            .unwrap();
+
             if let Some(data) = ctx.market_data_map.get(&pos.symbol) {
                 write!(sb, "{}\n", format_data(data)).unwrap();
             }
@@ -519,7 +589,12 @@ pub fn build_user_prompt(ctx: &Context) -> String {
     }
 
     // Candidates
-    write!(sb, "## Candidate Coins ({} coins)\n\n", ctx.market_data_map.len()).unwrap();
+    write!(
+        sb,
+        "## Candidate Coins ({} coins)\n\n",
+        ctx.market_data_map.len()
+    )
+    .unwrap();
     let mut count = 0;
     for coin in &ctx.candidate_coins {
         if let Some(data) = ctx.market_data_map.get(&coin.symbol) {
@@ -528,7 +603,7 @@ pub fn build_user_prompt(ctx: &Context) -> String {
             write!(sb, "{}\n", format_data(data)).unwrap();
         }
     }
-    
+
     sb.push_str("\n---\n\nNow please analyze and output decision (reasoning chain + JSON)\n");
     sb
 }
@@ -537,12 +612,10 @@ fn parse_full_decision_response(
     ai_response: &str,
     equity: f64,
     btc_eth_lev: i32,
-    alt_lev: i32
+    alt_lev: i32,
 ) -> Result<FullDecision> {
-    
     let cot_trace = extract_cot_trace(ai_response);
-    let decisions = extract_decisions(ai_response)
-        .context("failed to extract decisions")?;
+    let decisions = extract_decisions(ai_response).context("failed to extract decisions")?;
 
     validate_decisions(&decisions, equity, btc_eth_lev, alt_lev)
         .context("decision validation failed")?;
@@ -598,7 +671,7 @@ fn extract_decisions(response: &str) -> Result<Vec<Decision>> {
         let mut content = caps.get(1).map_or("", |m| m.as_str()).trim().to_string();
         content = compact_array_open(&content);
         content = fix_missing_quotes(&content);
-        
+
         validate_json_format(&content)?;
         return serde_json::from_str(&content).map_err(|e| anyhow!("JSON parsing failed: {}", e));
     }
@@ -615,29 +688,51 @@ fn extract_decisions(response: &str) -> Result<Vec<Decision>> {
 
     // Fallback
     warn!("⚠️  [SafeFallback] AI didn't output JSON decision");
-    let summary = if json_part.len() > 240 { format!("{}...", &json_part[..240]) } else { json_part };
-    
+    let summary = if json_part.len() > 240 {
+        format!("{}...", &json_part[..240])
+    } else {
+        json_part
+    };
+
     Ok(vec![Decision {
         symbol: "ALL".to_string(),
         action: "wait".to_string(),
-        leverage: None, position_size_usd: None, stop_loss: None, take_profit: None, confidence: None, risk_usd: None,
-        reasoning: Some(format!("Model didn't output structured JSON; summary: {}", summary)),
+        leverage: None,
+        position_size_usd: None,
+        stop_loss: None,
+        take_profit: None,
+        confidence: None,
+        risk_usd: None,
+        reasoning: Some(format!(
+            "Model didn't output structured JSON; summary: {}",
+            summary
+        )),
     }])
 }
 
 fn fix_missing_quotes(s: &str) -> String {
     let mut res = s.to_string();
     // Chinese quotes
-    res = res.replace("\u{201c}", "\"").replace("\u{201d}", "\"")
-             .replace("\u{2018}", "'").replace("\u{2019}", "'");
+    res = res
+        .replace("\u{201c}", "\"")
+        .replace("\u{201d}", "\"")
+        .replace("\u{2018}", "'")
+        .replace("\u{2019}", "'");
     // Full width chars
-    res = res.replace("［", "[").replace("］", "]")
-             .replace("｛", "{").replace("｝", "}")
-             .replace("：", ":").replace("，", ",");
+    res = res
+        .replace("［", "[")
+        .replace("］", "]")
+        .replace("｛", "{")
+        .replace("｝", "}")
+        .replace("：", ":")
+        .replace("，", ",");
     // CJK chars
-    res = res.replace("【", "[").replace("】", "]")
-             .replace("〔", "[").replace("〕", "]")
-             .replace("、", ",");
+    res = res
+        .replace("【", "[")
+        .replace("】", "]")
+        .replace("〔", "[")
+        .replace("〕", "]")
+        .replace("、", ",");
     // Full width space
     res = res.replace("　", " ");
     res
@@ -648,14 +743,16 @@ fn remove_invisible_runes(s: &str) -> String {
 }
 
 fn compact_array_open(s: &str) -> String {
-    get_re_array_open_space().replace_all(s.trim(), "[{").to_string()
+    get_re_array_open_space()
+        .replace_all(s.trim(), "[{")
+        .to_string()
 }
 
 fn validate_json_format(json_str: &str) -> Result<()> {
     let trimmed = json_str.trim();
     if !get_re_array_head().is_match(trimmed) {
         if trimmed.starts_with('[') && !trimmed[..min(20, trimmed.len())].contains('{') {
-             return Err(anyhow!("not a valid decision array (must contain objects)"));
+            return Err(anyhow!("not a valid decision array (must contain objects)"));
         }
         return Err(anyhow!("JSON must start with [{{"));
     }
@@ -666,7 +763,12 @@ fn validate_json_format(json_str: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_decisions(decisions: &[Decision], equity: f64, btc_eth_lev: i32, alt_lev: i32) -> Result<()> {
+fn validate_decisions(
+    decisions: &[Decision],
+    equity: f64,
+    btc_eth_lev: i32,
+    alt_lev: i32,
+) -> Result<()> {
     for (i, d) in decisions.iter().enumerate() {
         validate_decision(d, equity, btc_eth_lev, alt_lev)
             .with_context(|| format!("decision #{} validation failed", i + 1))?;
@@ -677,40 +779,61 @@ fn validate_decisions(decisions: &[Decision], equity: f64, btc_eth_lev: i32, alt
 #[instrument]
 fn validate_decision(d: &Decision, equity: f64, btc_eth_lev: i32, alt_lev: i32) -> Result<()> {
     match d.action.as_str() {
-        "open_long" | "open_short" | "close_long" | "close_short" | "hold" | "wait" => {},
+        "open_long" | "open_short" | "close_long" | "close_short" | "hold" | "wait" => {}
         _ => return Err(anyhow!("invalid action: {}", d.action)),
     }
 
     if d.action == "open_long" || d.action == "open_short" {
         let is_btc_eth = d.symbol == "BTCUSDT" || d.symbol == "ETHUSDT";
         let max_lev = if is_btc_eth { btc_eth_lev } else { alt_lev };
-        let max_pos = if is_btc_eth { equity * 10.0 } else { equity * 1.5 };
-        
+        let max_pos = if is_btc_eth {
+            equity * 10.0
+        } else {
+            equity * 1.5
+        };
+
         let lev = d.leverage.unwrap_or(0);
-        if lev <= 0 { return Err(anyhow!("leverage must be > 0")); }
+        if lev <= 0 {
+            return Err(anyhow!("leverage must be > 0"));
+        }
         if lev > max_lev {
-             warn!("⚠️  [Leverage Fallback] {} leverage exceeded, adjusting", d.symbol);
+            warn!(
+                "⚠️  [Leverage Fallback] {} leverage exceeded, adjusting",
+                d.symbol
+            );
         }
 
         let size = d.position_size_usd.unwrap_or(0.0);
-        if size <= 0.0 { return Err(anyhow!("position size must be > 0")); }
-        
+        if size <= 0.0 {
+            return Err(anyhow!("position size must be > 0"));
+        }
+
         // Min size check
         let min_size = if is_btc_eth { 60.0 } else { 12.0 };
-        if size < min_size { return Err(anyhow!("opening amount too small")); }
+        if size < min_size {
+            return Err(anyhow!("opening amount too small"));
+        }
 
         // Max size check
-        if size > max_pos * 1.01 { return Err(anyhow!("position value exceeds limit")); }
+        if size > max_pos * 1.01 {
+            return Err(anyhow!("position value exceeds limit"));
+        }
 
         let sl = d.stop_loss.unwrap_or(0.0);
         let tp = d.take_profit.unwrap_or(0.0);
-        if sl <= 0.0 || tp <= 0.0 { return Err(anyhow!("sl/tp must be > 0")); }
+        if sl <= 0.0 || tp <= 0.0 {
+            return Err(anyhow!("sl/tp must be > 0"));
+        }
 
         if d.action == "open_long" {
-            if sl >= tp { return Err(anyhow!("long: sl must be < tp")); }
+            if sl >= tp {
+                return Err(anyhow!("long: sl must be < tp"));
+            }
             // RR Calculation logic...
         } else {
-            if sl <= tp { return Err(anyhow!("short: sl must be > tp")); }
+            if sl <= tp {
+                return Err(anyhow!("short: sl must be > tp"));
+            }
         }
     }
     Ok(())

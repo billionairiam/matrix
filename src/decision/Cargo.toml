@@ -6,13 +6,12 @@ edition = "2024"
 [dependencies]
 anyhow.workspace = true
 chrono.workspace = true
+market = { path = "../market" }
+mcp = { path = "../mcp" }
+pool = { path = "../pool" }
+regex.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-regex.workspace = true
-tracing.workspace = true
- 
 store = { path = "../store" }
-pool = { path ="../pool" }
-market = { path = "../market" }
-mcp = { path = "../mcp" }
+tracing.workspace = true

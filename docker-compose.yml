@@ -1,0 +1,69 @@
+services:
+  nofx:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.backend
+    container_name: nofx-trading
+    restart: unless-stopped
+    stop_grace_period: 30s
+    ports:
+      - "${NOFX_BACKEND_PORT:-8080}:8080"
+    volumes:
+      # ⚠️ 注意：启动前请确保运行 cp config.json.example config.json
+      - ./config.json:/app/config.json:ro
+      
+      # 数据库文件
+      - ./data.db:/app/data.db
+      
+      # 日志目录 (对应你目录结构中的 logs 文件夹)
+      - ./logs:/app/logs
+      
+      # AI 提示词 (对应你目录结构中的 prompts 文件夹)
+      - ./prompts:/app/prompts
+      
+      # 同步宿主机时间
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      - TZ=${NOFX_TIMEZONE:-Asia/Shanghai}
+      - RUST_LOG=info
+      # 以下变量建议在 .env 文件中配置
+      - AI_MAX_TOKENS=${AI_MAX_TOKENS:-4000}
+      - DATA_ENCRYPTION_KEY=${DATA_ENCRYPTION_KEY}
+      - JWT_SECRET=${JWT_SECRET}
+      - RSA_PRIVATE_KEY=${RSA_PRIVATE_KEY}
+    networks:
+      - nofx-network
+    healthcheck:
+      # 确保你的 Rust 代码 server.rs 中实现了 /api/health 路由
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ═══════════════════════════════════════════════════════════════
+  # Frontend Service (Nginx + Static Files)
+  # ═══════════════════════════════════════════════════════════════
+  nofx-frontend:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.frontend
+    container_name: nofx-frontend
+    restart: unless-stopped
+    ports:
+      - "${NOFX_FRONTEND_PORT:-3000}:80"
+    networks:
+      - nofx-network
+    depends_on:
+      - nofx
+    healthcheck:
+      # Nginx 托管静态页面，直接检查根路径是否返回 200 即可
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+networks:
+  nofx-network:
+    driver: bridge

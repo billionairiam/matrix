@@ -3,27 +3,6 @@ name = "matrix"
 version = "0.1.0"
 edition = "2024"
 
-[dependencies]
-anyhow.workspace = true
-dotenvy = "0.15"
-tokio.workspace = true
-tracing.workspace = true
-
-api = { path = "src/api" }
-auth = { path = "src/auth" }
-backtest = { path = "src/backtest" }
-config_lib = { path = "src/config", package = "config" }
-crypto = { path = "src/crypto" }
-decision = { path = "src/decision" }
-hook = { path = "src/hook" }
-logger = { path = "src/logger" }
-manager = { path = "src/manager" }
-market = { path = "src/market" }
-mcp = { path = "src/mcp" }
-pool = { path = "src/pool" }
-store = { path = "src/store" }
-trader = { path = "src/trader" }
-
 [workspace]
 members = [
     "src/api",
@@ -43,56 +22,77 @@ members = [
 ]
 
 [workspace.dependencies]
-futures = "0.3.31"
-tower-http = { version = "0.5", features = ["cors"] }
-env_logger = "0.11.8"
-anyhow = "1.0"
-axum = "0.8.7"
-bcrypt = "0.15"
-chrono = { version = "0.4", features = ["serde"] }
-jsonwebtoken = "9.2"
-log = "0.4"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-totp-rs = { version = "5.5", features = ["qr", "otpauth", "gen_secret"] }
-dotenvy = "0.15"
-rsa = "0.9"           # For RSA-OAEP decryption
 aes-gcm = "0.10"      # For AES-GCM encryption/decryption
-sha2 = "0.10"         # For SHA256 hashing (OAEP)
-base64 = "0.21"       # For Base64 encoding/decryption
-hex = "0.4"           # For Hex decoding
-pkcs8 = { version = "0.10", features = ["std", "pem"] } # For parsing keys
-pkcs1 = { version = "0.7", features = ["std", "pem"] }  # For parsing RSA PKCS1 keys
-rand = "0.8"          # For random nonce/key generation
-thiserror = "1.0"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-tracing-appender = "*"
-hostname = "0.3"
-tokio = { version = "1", features = ["full"] }
-tokio-tungstenite = { version = "0.20", features = ["native-tls"] }
-futures-util = "0.3"
-url = "2.4"
-reqwest = { version = "0.11", features = ["json", "blocking"] }
-dashmap = "5.5"
-once_cell = "1.18"
-binance = "0.21.2"
-async-trait = "0.1"
-sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio-native-tls", "chrono"] }
-data-encoding = "2"
-ethers = { version = "2.0", features = ["legacy"] }
-async-recursion = "1.0"
-hyperliquid_rust_sdk = { git = "https://github.com/hyperliquid-dex/hyperliquid-rust-sdk", branch = "master" }
 alloy = { version = "1.0", default-features = false, features = [
   "dyn-abi",
   "sol-types",
   "signer-local",
 ] }
+anyhow = "1.0"
+async-recursion = "1.0"
+async-trait = "0.1"
+axum = "0.8.7"
+base64 = "0.21"       # For Base64 encoding/decryption
+bcrypt = "0.15"
+binance = "0.21.2"
+chrono = { version = "0.4", features = ["serde"] }
+dashmap = "5.5"
+data-encoding = "2"
+dotenvy = "0.15"
+env_logger = "0.11.8"
+ethers = { version = "2.0", features = ["legacy"] }
+futures = "0.3.31"
+futures-util = "0.3"
+hex = "0.4"           # For Hex decoding
+hostname = "0.3"
+hyperliquid_rust_sdk = { git = "https://github.com/hyperliquid-dex/hyperliquid-rust-sdk", branch = "master" }
+if-addrs = "0.10"
+jsonwebtoken = "9.2"
+log = "0.4"
+once_cell = "1.18"
+pkcs1 = { version = "0.7", features = ["std", "pem"] }  # For parsing RSA PKCS1 keys
+pkcs8 = { version = "0.10", features = ["std", "pem"] } # For parsing keys
+rand = "0.8"          # For random nonce/key generation
 regex = "1.12.2"
-zip = "7"
+reqwest = { version = "0.11", features = ["json", "blocking"] }
+rsa = "0.9"           # For RSA-OAEP decryption
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"         # For SHA256 hashing (OAEP)
+sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio-native-tls", "chrono"] }
 tempfile = "3.24.0"
+thiserror = "1.0"
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.20", features = ["native-tls"] }
 tokio-util = "0.7.17"
-walkdir = "2.5.0"
+totp-rs = { version = "5.5", features = ["qr", "otpauth", "gen_secret"] }
+tower-http = { version = "0.5", features = ["cors"] }
+tracing = "0.1"
+tracing-appender = "*"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+url = "2.4"
 uuid = "1.19.0"
 validator = { version = "0.16", features = ["derive"] }
-if-addrs = "0.10"
+walkdir = "2.5.0"
+zip = "7"
+
+[dependencies]
+anyhow.workspace = true
+
+api = { path = "src/api" }
+auth = { path = "src/auth" }
+backtest = { path = "src/backtest" }
+config_lib = { path = "src/config", package = "config" }
+crypto = { path = "src/crypto" }
+decision = { path = "src/decision" }
+dotenvy = "0.15"
+hook = { path = "src/hook" }
+logger = { path = "src/logger" }
+manager = { path = "src/manager" }
+market = { path = "src/market" }
+mcp = { path = "src/mcp" }
+pool = { path = "src/pool" }
+store = { path = "src/store" }
+tokio.workspace = true
+tracing.workspace = true
+trader = { path = "src/trader" }

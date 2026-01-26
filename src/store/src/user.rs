@@ -1,27 +1,27 @@
-use sqlx::{ SqlitePool, FromRow};
-use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc};
 use anyhow::{Context, Result};
-use rand::RngCore;
+use chrono::{DateTime, Utc};
 use data_encoding::BASE32;
+use rand::RngCore;
+use serde::{Deserialize, Serialize};
+use sqlx::{FromRow, SqlitePool};
 
 /// User user entity
 #[derive(Debug, Serialize, Deserialize, Clone, FromRow)]
 pub struct User {
     pub id: String,
     pub email: String,
-    
+
     #[serde(skip)] // json:"-"
     #[sqlx(rename = "password_hash")]
     pub password_hash: String,
-    
+
     #[serde(skip)] // json:"-"
     #[sqlx(rename = "otp_secret")]
     pub otp_secret: String,
-    
+
     #[sqlx(rename = "otp_verified")]
     pub otp_verified: bool,
-    
+
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -95,7 +95,7 @@ impl UserStore {
         .bind(user.otp_verified)
         // Note: We explicitly bind times here to ensure the structs match DB exactly on creation,
         // though DB defaults would work if we omitted them.
-        .bind(user.created_at) 
+        .bind(user.created_at)
         .bind(user.updated_at)
         .execute(&self.db)
         .await
@@ -140,12 +140,10 @@ impl UserStore {
 
     /// Gets all user IDs
     pub async fn get_all_ids(&self) -> Result<Vec<String>> {
-        let user_ids = sqlx::query_scalar::<_, String>(
-            "SELECT id FROM users ORDER BY id"
-        )
-        .fetch_all(&self.db)
-        .await
-        .context("Failed to get all user IDs")?;
+        let user_ids = sqlx::query_scalar::<_, String>("SELECT id FROM users ORDER BY id")
+            .fetch_all(&self.db)
+            .await
+            .context("Failed to get all user IDs")?;
 
         Ok(user_ids)
     }
@@ -164,7 +162,7 @@ impl UserStore {
     /// Updates password
     pub async fn update_password(&self, user_id: &str, password_hash: &str) -> Result<()> {
         sqlx::query(
-            "UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+            "UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
         )
         .bind(password_hash)
         .bind(user_id)

@@ -4,25 +4,24 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-tokio.workspace = true
-reqwest.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-ethers.workspace = true
-hex.workspace = true
-chrono.workspace = true
+alloy.workspace = true
 anyhow.workspace = true
 async-recursion.workspace = true
 async-trait.workspace = true
 binance.workspace = true
-rand.workspace = true
-hyperliquid_rust_sdk.workspace = true
-alloy.workspace = true
-tracing.workspace = true
-
-hook = { path = "../hook" }
-store = { path = "../store" }
-mcp = { path = "../mcp" }
+chrono.workspace = true
 decision = { path = "../decision" }
+ethers.workspace = true
+hex.workspace = true
+hook = { path = "../hook" }
+hyperliquid_rust_sdk.workspace = true
 market = { path = "../market" }
+mcp = { path = "../mcp" }
 pool = { path = "../pool" }
+rand.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+store = { path = "../store" }
+tokio.workspace = true
+tracing.workspace = true

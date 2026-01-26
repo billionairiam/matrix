@@ -4,30 +4,29 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+anyhow.workspace = true
 auth = { path = "../auth" }
+axum.workspace = true
 backtest = { path = "../backtest" }
+chrono.workspace = true
 config = { path = "../config" }
 crypto = { path = "../crypto" }
 decision = { path = "../decision" }
-manager = { path = "../manager" }
-store = { path = "../store" }
-trader = { path = "../trader" }
-market = { path = "../market" }
-mcp = { path = "../mcp" }
-
-serde_json.workspace = true
-serde.workspace = true
-axum.workspace = true
-tracing.workspace = true
-thiserror.workspace = true
-anyhow.workspace =true
-chrono.workspace = true
-tower-http.workspace = true
-tokio.workspace = true
-validator.workspace = true
-uuid.workspace = true
-reqwest.workspace = true
 futures.workspace = true
 if-addrs.workspace = true
+manager = { path = "../manager" }
+market = { path = "../market" }
+mcp = { path = "../mcp" }
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 sqlx.workspace = true
+store = { path = "../store" }
+thiserror.workspace = true
+tokio.workspace = true
 tokio-util.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+trader = { path = "../trader" }
+uuid.workspace = true
+validator.workspace = true

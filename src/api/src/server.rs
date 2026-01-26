@@ -6,10 +6,10 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::backtest::{
-    handle_backtest_label, handle_backtest_pause, handle_backtest_resume, handle_backtest_start,
-    handle_backtest_stop,handle_backtest_delete,handle_backtest_status,handle_backtest_runs,
-    handle_backtest_equity,handle_backtest_trades,handle_backtest_metrics,handle_backtest_trace,
-    handle_backtest_decisions,handle_backtest_export
+    handle_backtest_decisions, handle_backtest_delete, handle_backtest_equity,
+    handle_backtest_export, handle_backtest_label, handle_backtest_metrics, handle_backtest_pause,
+    handle_backtest_resume, handle_backtest_runs, handle_backtest_start, handle_backtest_status,
+    handle_backtest_stop, handle_backtest_trace, handle_backtest_trades,
 };
 use crate::crypto_handler::CryptoHandler;
 use crate::strategy::{
@@ -34,7 +34,6 @@ use chrono::Utc;
 use crypto::crypto::EncryptedPayload;
 use futures::future::select_ok;
 use if_addrs::get_if_addrs;
-use tracing::{error, info, warn, instrument, debug};
 use manager::trader_manager::TraderManager;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -43,6 +42,7 @@ use store::exchange::Exchange;
 use store::store::Store;
 use store::user::User;
 use tower_http::cors::{Any, CorsLayer};
+use tracing::{debug, error, info, instrument, warn};
 use trader::Trader;
 use uuid::Uuid;
 use validator::Validate;
@@ -397,7 +397,10 @@ impl Server {
                     .delete(handle_delete_strategy),
             )
             .route("/strategies/{id}/activate", post(handle_activate_strategy))
-            .route("/strategies/{id}/duplicate", post(handle_duplicate_strategy))
+            .route(
+                "/strategies/{id}/duplicate",
+                post(handle_duplicate_strategy),
+            )
             // Data for specified trader
             .route("/status", get(handle_status))
             .route("/account", get(handle_account))
@@ -1474,7 +1477,7 @@ async fn handle_create_trader(
             let s = s.trim();
             if !s.is_empty() && !s.to_uppercase().ends_with("USDT") {
                 return (
-                    StatusCode::BAD_REQUEST, 
+                    StatusCode::BAD_REQUEST,
                     Json(json!({ "error": format!("Invalid symbol format: {}, must end with USDT", s) }))
                 ).into_response();
             }
@@ -1811,7 +1814,13 @@ pub async fn handle_delete_trader(
     // Extract trader_id from URL path
     Path(trader_id): Path<String>,
 ) -> impl IntoResponse {
-    if let Err(e) = state.store.trader().await.delete(&user.user_id, &trader_id).await {
+    if let Err(e) = state
+        .store
+        .trader()
+        .await
+        .delete(&user.user_id, &trader_id)
+        .await
+    {
         error!("Failed to delete trader: {:?}", e);
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -2901,16 +2910,12 @@ pub async fn handle_decisions(
         .get_latest_records(&trader_id, 10000)
         .await
     {
-        Ok(records) => {
-            Json(records).into_response()
-        }
-        Err(e) => {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": format!("Failed to get decision log: {:?}", e) })),
-            )
-                .into_response()
-        }
+        Ok(records) => Json(records).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Failed to get decision log: {:?}", e) })),
+        )
+            .into_response(),
     }
 }
 
@@ -2985,15 +2990,11 @@ pub async fn handle_statistics(
 
     // Get Statistics
     match state.store.decision().get_statistics(&trader_id).await {
-        Ok(stats) => {
-            Json(stats).into_response()
-        }
-        Err(e) => {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": format!("Failed to get statistics: {:?}", e) })),
-            )
-                .into_response()
-        }
+        Ok(stats) => Json(stats).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Failed to get statistics: {:?}", e) })),
+        )
+            .into_response(),
     }
 }
