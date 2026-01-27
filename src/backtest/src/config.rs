@@ -5,21 +5,12 @@ use market::timeframe::normalize_timeframe;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum FillPolicy {
     #[default]
     NextOpen,
     BarVWAP,
     MidPrice,
-}
-
-impl FillPolicy {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            FillPolicy::NextOpen => "NextOpen",
-            FillPolicy::BarVWAP => "BarVWAP",
-            FillPolicy::MidPrice => "MidPrice",
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,6 +49,7 @@ pub struct LeverageConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BacktestConfig {
+    #[serde(default)]
     pub run_id: String,
 
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -156,7 +148,8 @@ impl BacktestConfig {
     pub fn validate(&mut self) -> Result<()> {
         self.run_id = self.run_id.trim().to_string();
         if self.run_id.is_empty() {
-            return Err(anyhow!("run_id cannot be empty"));
+            // Auto-generate run_id if missing (e.g. from frontend)
+            self.run_id = uuid::Uuid::new_v4().to_string();
         }
 
         self.user_id = self.user_id.trim().to_string();
@@ -207,8 +200,6 @@ impl BacktestConfig {
             self.initial_balance = 1000.0;
         }
 
-        validate_fill_policy(&self.fill_policy)?;
-
         if self.checkpoint_interval_bars <= 0 {
             self.checkpoint_interval_bars = 20;
         }
@@ -250,11 +241,5 @@ impl BacktestConfig {
         let start = DateTime::from_timestamp(self.start_ts, 0).unwrap_or(DateTime::<Utc>::MIN_UTC);
         let end = DateTime::from_timestamp(self.end_ts, 0).unwrap_or(DateTime::<Utc>::MIN_UTC);
         end - start
-    }
-}
-
-pub fn validate_fill_policy(policy: &FillPolicy) -> Result<()> {
-    match policy {
-        FillPolicy::NextOpen | FillPolicy::MidPrice | FillPolicy::BarVWAP => Ok(()),
     }
 }

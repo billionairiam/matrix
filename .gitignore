@@ -1,5 +1,5 @@
 /target
 .env
-/logs
+/decision_logs
 *.db
-*.log
+/web/node_modules

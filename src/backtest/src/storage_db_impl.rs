@@ -587,7 +587,7 @@ pub async fn list_index_entries_db(pool: &Pool<Sqlite>) -> Result<Vec<RunIndexEn
         let max_dd: f64 = row.try_get("max_drawdown_pct")?;
         let created_iso: String = row.try_get("created_at")?;
         let updated_iso: String = row.try_get("updated_at")?;
-        let config_json: Vec<u8> = row.try_get("config_json")?;
+        let config_json: String = row.try_get("config_json")?;
 
         let state: RunState =
             serde_json::from_str(&format!("\"{}\"", state_str)).unwrap_or(RunState::Created); // Fallback
@@ -606,7 +606,7 @@ pub async fn list_index_entries_db(pool: &Pool<Sqlite>) -> Result<Vec<RunIndexEn
         };
 
         if !config_json.is_empty() {
-            if let Ok(cfg) = serde_json::from_slice::<BacktestConfig>(&config_json) {
+            if let Ok(cfg) = serde_json::from_str::<BacktestConfig>(&config_json) {
                 entry.symbols = cfg.symbols;
                 entry.start_ts = cfg.start_ts;
                 entry.end_ts = cfg.end_ts;

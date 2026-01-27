@@ -333,22 +333,7 @@ impl Server {
             .route("/register", post(handle_register))
             .route("/login", post(handle_login))
             .route("/verify-otp", post(handle_verify_otp))
-            .route("/complete-registration", post(handle_complete_registration))
-            // Backtest routes
-            .route("/backtest/start", post(handle_backtest_start))
-            .route("/backtest/pause", post(handle_backtest_pause))
-            .route("/backtest/resume", post(handle_backtest_resume))
-            .route("/backtest/stop", post(handle_backtest_stop))
-            .route("/backtest/label", post(handle_backtest_label))
-            .route("/backtest/delete", post(handle_backtest_delete))
-            .route("/backtest/status", get(handle_backtest_status))
-            .route("/backtest/runs", get(handle_backtest_runs))
-            .route("/backtest/equity", get(handle_backtest_equity))
-            .route("/backtest/trades", get(handle_backtest_trades))
-            .route("/backtest/metrics", get(handle_backtest_metrics))
-            .route("/backtest/trace", get(handle_backtest_trace))
-            .route("/backtest/decisions", get(handle_backtest_decisions))
-            .route("/backtest/export", get(handle_backtest_export));
+            .route("/complete-registration", post(handle_complete_registration));
 
         // Protected routes
         let protected_routes = Router::new()
@@ -408,6 +393,21 @@ impl Server {
             .route("/decisions", get(handle_decisions))
             .route("/decisions/latest", get(handle_latest_decisions))
             .route("/statistics", get(handle_statistics))
+            // Backtest routes
+            .route("/backtest/start", post(handle_backtest_start))
+            .route("/backtest/pause", post(handle_backtest_pause))
+            .route("/backtest/resume", post(handle_backtest_resume))
+            .route("/backtest/stop", post(handle_backtest_stop))
+            .route("/backtest/label", post(handle_backtest_label))
+            .route("/backtest/delete", post(handle_backtest_delete))
+            .route("/backtest/status", get(handle_backtest_status))
+            .route("/backtest/runs", get(handle_backtest_runs))
+            .route("/backtest/equity", get(handle_backtest_equity))
+            .route("/backtest/trades", get(handle_backtest_trades))
+            .route("/backtest/metrics", get(handle_backtest_metrics))
+            .route("/backtest/trace", get(handle_backtest_trace))
+            .route("/backtest/decisions", get(handle_backtest_decisions))
+            .route("/backtest/export", get(handle_backtest_export))
             .layer(middleware::from_fn(auth_middleware));
 
         Router::new()

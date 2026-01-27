@@ -80,7 +80,8 @@ struct CoinPoolApiResponse {
 
 #[derive(Debug, Deserialize)]
 struct CoinPoolApiData {
-    coins: Vec<CoinInfo>,
+    #[serde(default)]
+    coins: Option<Vec<CoinInfo>>,
     #[serde(default)]
     _count: i32,
 }
@@ -278,11 +279,11 @@ impl CoinPoolClient {
             return Err(anyhow::anyhow!("API returned failure status"));
         }
 
-        if body.data.coins.is_empty() {
+        let mut coins = body.data.coins.unwrap_or_default();
+
+        if coins.is_empty() {
             return Err(anyhow::anyhow!("Coin list is empty"));
         }
-
-        let mut coins = body.data.coins;
         // Set IsAvailable flag (internal use)
         for coin in &mut coins {
             coin.is_available = true;
