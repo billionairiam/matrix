@@ -113,7 +113,7 @@ impl CombinedStreamsClient {
     }
 
     /// Sends the subscription message for a list of streams
-    #[instrument]
+    #[instrument(skip(self, streams))]
     pub async fn subscribe_streams(&self, streams: Vec<String>) -> Result<(), String> {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -169,7 +169,7 @@ impl CombinedStreamsClient {
     }
 
     /// Parses the combined message wrapper and dispatches data to subscribers
-    #[instrument]
+    #[instrument(skip(self))]
     async fn handle_combined_message(&self, text: &str) {
         // Parse: {"stream":"...", "data": ...}
         match serde_json::from_str::<CombinedStreamMessage>(text) {
@@ -211,7 +211,7 @@ impl CombinedStreamsClient {
     }
 
     /// Handles reconnection logic using a fire-and-forget task
-    #[instrument]
+    #[instrument(skip(self))]
     fn handle_reconnect(&self) {
         if !self.reconnect || self.shutdown_tx.is_closed() {
             return;

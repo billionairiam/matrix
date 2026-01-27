@@ -9,7 +9,7 @@ pub fn init<T: Into<String>>(name: T) {
         .with_filter(EnvFilter::new("info"));
 
     let file_appender =
-        tracing_appender::rolling::hourly("./logs/", format!("{}.log", name.into()));
+        tracing_appender::rolling::hourly("./decision_logs/", format!("{}.log", name.into()));
     let file_layer = fmt::layer()
         .with_ansi(false)
         .with_writer(file_appender)

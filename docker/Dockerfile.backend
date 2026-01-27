@@ -9,8 +9,8 @@ RUN cargo chef prepare --recipe-path recipe.json
 # 构建依赖 (缓存层)
 FROM chef AS builder 
 COPY --from=planner /app/recipe.json recipe.json
-# 安装系统依赖 (musl-dev 用于静态链接)
-RUN apk update && apk add --no-cache musl-dev
+# 安装系统依赖 (musl-dev 用于静态链接, openssl-dev 用于编译 openssl-sys)
+RUN apk update && apk add --no-cache musl-dev openssl-dev openssl-libs-static pkgconfig
 # 只编译依赖包，不编译你的业务代码 (利用 Docker 缓存)
 RUN cargo chef cook --release --recipe-path recipe.json
 

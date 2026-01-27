@@ -1,15 +1,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use super::combined_streams::CombinedStreamsClient;
+use super::websocket_client::{KlineWSData, WSClient};
 use crate::api_client::APIClient;
 use crate::types::Kline;
 use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
 use tokio::sync::{RwLock, Semaphore};
 use tracing::{error, info, instrument, warn};
-
-use super::combined_streams::CombinedStreamsClient;
-use super::websocket_client::{KlineWSData, WSClient};
 
 const SUB_KLINE_TIME: [&str; 2] = ["3m", "4h"];
 
@@ -46,7 +45,7 @@ impl WSMonitor {
         })
     }
 
-    #[instrument]
+    #[instrument(skip(self))]
     pub async fn initialize(self: &Arc<Self>, coins: Vec<String>) -> Result<()> {
         info!("Initializing WebSocket monitor...");
         let api_client = APIClient::new();
@@ -85,7 +84,7 @@ impl WSMonitor {
         Ok(())
     }
 
-    #[instrument]
+    #[instrument(skip(self))]
     async fn initialize_historical_data(self: &Arc<Self>) -> Result<()> {
         info!("Fetching historical data...");
         let symbols = self.symbols.read().await.clone();
@@ -142,7 +141,7 @@ impl WSMonitor {
         Ok(())
     }
 
-    #[instrument]
+    #[instrument(skip(self))]
     pub async fn start(self: &Arc<Self>, coins: Vec<String>) {
         info!("Starting WebSocket real-time monitoring...");
 
@@ -162,7 +161,7 @@ impl WSMonitor {
         }
     }
 
-    #[instrument]
+    #[instrument(skip(self))]
     async fn subscribe_all(self: &Arc<Self>) -> Result<()> {
         info!("Starting to subscribe to all trading pairs...");
         let symbols = self.symbols.read().await.clone();
@@ -275,7 +274,7 @@ impl WSMonitor {
             .or_insert_with(|| vec![kline]);
     }
 
-    #[instrument]
+    #[instrument(skip(self))]
     pub async fn get_current_klines(
         self: &Arc<Self>,
         symbol: &str,
