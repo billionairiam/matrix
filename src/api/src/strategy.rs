@@ -292,7 +292,7 @@ async fn run_real_ai_test(
     let ai_client = match model.provider.as_str() {
         "qwen" => new_qwen_client(&model.api_key).unwrap(),
         "deepseek" => new_deepseek_client(&model.api_key).unwrap(),
-        _ => new_custom_client(&model.api_key, &model.custom_api_url).unwrap(),
+        _ => new_custom_client(&model.api_key, &model.custom_api_url,&model.custom_model_name).unwrap(),
     };
 
     let response = ai_client

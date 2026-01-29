@@ -186,6 +186,7 @@ impl AutoTrader {
             "custom" => Client::builder(Arc::new(CustomProvider))
                 .with_api_key(&config.custom_api_key)
                 .with_base_url(&config.custom_api_url)
+                .with_model(&config.custom_model_name)
                 .build(),
             "qwen" => Client::builder(Arc::new(QwenProvider))
                 .with_api_key(&config.qwen_key)

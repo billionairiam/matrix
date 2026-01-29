@@ -145,7 +145,9 @@ export function ModelConfigModal({
                           background:
                             selectedModel.id === 'deepseek'
                               ? '#60a5fa'
-                              : '#c084fc',
+                              : selectedModel.id === 'qwen'
+                                ? '#c084fc'
+                                : '#f97316', // orange for custom
                           color: '#fff',
                         }}
                       >

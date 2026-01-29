@@ -24,13 +24,15 @@ impl Provider for CustomProvider {
     }
 }
 
-pub fn new_custom_client(api_key: &str, base_url: &str) -> Result<Client> {
+pub fn new_custom_client(api_key: &str, base_url: &str, model_name: &str) -> Result<Client> {
     let dp = CustomProvider;
 
     let client = Client::builder(Arc::new(dp))
         .with_api_key(api_key)
         .with_base_url(base_url)
+        .with_model(model_name)
         .build();
 
     Ok(client)
 }
+

@@ -728,6 +728,8 @@ impl TraderManager {
             config.qwen_key = ai_model_cfg.api_key.clone();
         } else if ai_model_cfg.provider == "deepseek" {
             config.deepseek_key = ai_model_cfg.api_key.clone();
+        } else if ai_model_cfg.provider == "custom" {
+            config.custom_api_key = ai_model_cfg.api_key.clone();
         }
 
         let at = AutoTrader::new(

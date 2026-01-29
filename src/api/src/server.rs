@@ -490,6 +490,11 @@ async fn handle_get_supported_models() -> impl IntoResponse {
             "id": "qwen",
             "name": "Qwen",
             "provider": "qwen"
+        },
+        {
+            "id": "custom",
+            "name": "Custom API",
+            "provider": "custom"
         }
     ]);
 

@@ -50,7 +50,11 @@ export function AIModelsSection({
                       className="w-7 h-7 md:w-8 md:h-8 rounded-full flex items-center justify-center text-xs md:text-sm font-bold"
                       style={{
                         background:
-                          model.id === 'deepseek' ? '#60a5fa' : '#c084fc',
+                          model.id === 'deepseek'
+                            ? '#60a5fa'
+                            : model.id === 'qwen'
+                              ? '#c084fc'
+                              : '#f97316', // orange for custom
                         color: '#fff',
                       }}
                     >
