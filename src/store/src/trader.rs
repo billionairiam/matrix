@@ -4,7 +4,7 @@ use super::CryptoProvider;
 use super::ai_model::AIModel;
 use super::exchange::Exchange;
 use super::strategy::Strategy;
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
@@ -185,7 +185,7 @@ impl TraderStore {
         .bind(&trader.system_prompt_template)
         .execute(&self.db)
         .await
-        .context("Failed to create trader")?;
+        .map_err(|e| anyhow!("Failed to create trader: {:?}", e))?;
 
         Ok(())
     }

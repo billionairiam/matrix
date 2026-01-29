@@ -183,9 +183,16 @@ impl AutoTrader {
         info!("🤖 [{}] Using AI Model: {}", &config.name, &config.ai_model);
 
         let mcp_client = match config.ai_model.as_str() {
-            "custom" => Client::builder(Arc::new(CustomProvider)).build(),
-            "qwen" => Client::builder(Arc::new(QwenProvider)).build(),
-            _ => Client::builder(Arc::new(DeepseekProvider)).build(),
+            "custom" => Client::builder(Arc::new(CustomProvider))
+                .with_api_key(&config.custom_api_key)
+                .with_base_url(&config.custom_api_url)
+                .build(),
+            "qwen" => Client::builder(Arc::new(QwenProvider))
+                .with_api_key(&config.qwen_key)
+                .build(),
+            _ => Client::builder(Arc::new(DeepseekProvider))
+                .with_api_key(&config.deepseek_key)
+                .build(),
         };
 
         // Initialize Trader

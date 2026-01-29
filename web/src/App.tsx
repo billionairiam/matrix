@@ -14,6 +14,7 @@ import HeaderBar from './components/HeaderBar'
 import { LanguageProvider, useLanguage } from './contexts/LanguageContext'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ConfirmDialogProvider } from './components/ConfirmDialog'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { t, type Language } from './i18n/translations'
 import { confirmToast, notify } from './lib/notify'
 import { useSystemConfig } from './hooks/useSystemConfig'
@@ -125,6 +126,8 @@ function App() {
     {
       refreshInterval: 10000,
       shouldRetryOnError: false, // 避免在后端未运行时无限重试
+      revalidateOnFocus: false,
+      dedupingInterval: 5000,
     }
   )
 
@@ -136,7 +139,7 @@ function App() {
   }, [traders, selectedTraderId])
 
   // 如果在trader页面，获取该trader的数据
-  const { data: status } = useSWR<SystemStatus>(
+  const { data: status, error: statusError } = useSWR<SystemStatus>(
     currentPage === 'trader' && selectedTraderId
       ? `status-${selectedTraderId}`
       : null,
@@ -145,10 +148,12 @@ function App() {
       refreshInterval: 15000, // 15秒刷新（配合后端15秒缓存）
       revalidateOnFocus: false, // 禁用聚焦时重新验证，减少请求
       dedupingInterval: 10000, // 10秒去重，防止短时间内重复请求
+      shouldRetryOnError: false,
+      errorRetryCount: 0,
     }
   )
 
-  const { data: account } = useSWR<AccountInfo>(
+  const { data: account, error: accountError } = useSWR<AccountInfo>(
     currentPage === 'trader' && selectedTraderId
       ? `account-${selectedTraderId}`
       : null,
@@ -157,10 +162,12 @@ function App() {
       refreshInterval: 15000, // 15秒刷新（配合后端15秒缓存）
       revalidateOnFocus: false, // 禁用聚焦时重新验证，减少请求
       dedupingInterval: 10000, // 10秒去重，防止短时间内重复请求
+      shouldRetryOnError: false,
+      errorRetryCount: 0,
     }
   )
 
-  const { data: positions } = useSWR<Position[]>(
+  const { data: positions, error: positionsError } = useSWR<Position[]>(
     currentPage === 'trader' && selectedTraderId
       ? `positions-${selectedTraderId}`
       : null,
@@ -169,10 +176,12 @@ function App() {
       refreshInterval: 15000, // 15秒刷新（配合后端15秒缓存）
       revalidateOnFocus: false, // 禁用聚焦时重新验证，减少请求
       dedupingInterval: 10000, // 10秒去重，防止短时间内重复请求
+      shouldRetryOnError: false,
+      errorRetryCount: 0,
     }
   )
 
-  const { data: decisions } = useSWR<DecisionRecord[]>(
+  const { data: decisions, error: decisionsError } = useSWR<DecisionRecord[]>(
     currentPage === 'trader' && selectedTraderId
       ? `decisions/latest-${selectedTraderId}`
       : null,
@@ -181,10 +190,12 @@ function App() {
       refreshInterval: 30000, // 30秒刷新（决策更新频率较低）
       revalidateOnFocus: false,
       dedupingInterval: 20000,
+      shouldRetryOnError: false,
+      errorRetryCount: 0,
     }
   )
 
-  const { data: stats } = useSWR<Statistics>(
+  const { data: stats, error: statsError } = useSWR<Statistics>(
     currentPage === 'trader' && selectedTraderId
       ? `statistics-${selectedTraderId}`
       : null,
@@ -193,6 +204,8 @@ function App() {
       refreshInterval: 30000, // 30秒刷新（统计数据更新频率较低）
       revalidateOnFocus: false,
       dedupingInterval: 20000,
+      shouldRetryOnError: false,
+      errorRetryCount: 0,
     }
   )
 
@@ -438,6 +451,11 @@ function App() {
             tradersError={tradersError}
             selectedTraderId={selectedTraderId}
             onTraderSelect={setSelectedTraderId}
+            statusError={statusError}
+            accountError={accountError}
+            positionsError={positionsError}
+            decisionsError={decisionsError}
+            statsError={statsError}
             onNavigateToTraders={() => {
               window.history.pushState({}, '', '/traders')
               setRoute('/traders')
@@ -504,12 +522,18 @@ function TraderDetailsPage({
   account,
   positions,
   decisions,
+  stats,
   lastUpdate,
   language,
   traders,
   tradersError,
   selectedTraderId,
   onTraderSelect,
+  statusError,
+  accountError,
+  positionsError,
+  decisionsError,
+  statsError,
   onNavigateToTraders,
 }: {
   selectedTrader?: TraderInfo
@@ -519,7 +543,15 @@ function TraderDetailsPage({
   onTraderSelect: (traderId: string) => void
   onNavigateToTraders: () => void
   status?: SystemStatus
+  statusError?: Error
   account?: AccountInfo
+  accountError?: Error
+  positions?: Position[]
+  positionsError?: Error
+  decisions?: DecisionRecord[]
+  decisionsError?: Error
+  stats?: Statistics
+  statsError?: Error
   positions?: Position[]
   decisions?: DecisionRecord[]
   stats?: Statistics
@@ -562,6 +594,33 @@ function TraderDetailsPage({
     } finally {
       setClosingPosition(null)
     }
+  }
+  // If any API call failed with error, show error state
+  if (statusError || accountError || positionsError) {
+    const error = statusError || accountError || positionsError
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-center max-w-md mx-auto px-6">
+          <div className="text-6xl mb-4">⚠️</div>
+          <h2 className="text-2xl font-bold mb-3" style={{ color: '#EAECEF' }}>
+            {language === 'zh' ? '数据加载失败' : 'Failed to Load Data'}
+          </h2>
+          <p className="mb-6" style={{ color: '#848E9C' }}>
+            {error?.message || (language === 'zh' ? '无法连接到服务器' : 'Cannot connect to server')}
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-6 py-2 rounded font-semibold transition-all hover:opacity-90"
+            style={{
+              background: 'linear-gradient(135deg, #F0B90B 0%, #FCD535 100%)',
+              color: '#0B0E11',
+            }}
+          >
+            {language === 'zh' ? '刷新页面' : 'Reload Page'}
+          </button>
+        </div>
+      </div>
+    )
   }
   // If API failed with error, show empty state (likely backend not running)
   if (tradersError) {
@@ -1149,12 +1208,14 @@ function StatCard({
 // Wrap App with providers
 export default function AppWithProviders() {
   return (
-    <LanguageProvider>
-      <AuthProvider>
-        <ConfirmDialogProvider>
-          <App />
-        </ConfirmDialogProvider>
-      </AuthProvider>
-    </LanguageProvider>
+    <ErrorBoundary>
+      <LanguageProvider>
+        <AuthProvider>
+          <ConfirmDialogProvider>
+            <App />
+          </ConfirmDialogProvider>
+        </AuthProvider>
+      </LanguageProvider>
+    </ErrorBoundary>
   )
 }

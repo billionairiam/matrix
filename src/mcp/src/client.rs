@@ -1,12 +1,12 @@
-use serde::Serialize;
-use serde_json::Value;
-
 use std::sync::Arc;
 
 use crate::Provider;
 use crate::builder::ClientBuilder;
 use crate::config::Config;
 use crate::request::Message;
+use serde::Serialize;
+use serde_json::Value;
+use tracing::{info, warn, instrument};
 
 #[derive(Debug, Serialize, Clone)]
 pub struct ChatRequest {
@@ -109,12 +109,13 @@ impl Client {
         self.execute_with_retry(messages).await
     }
 
+    #[instrument(skip(self, messages))]
     async fn execute_with_retry(&self, messages: Vec<Message>) -> Result<String, McpError> {
         let mut last_error = None;
 
         for attempt in 1..=self.config.max_retries {
             if attempt > 1 {
-                log::warn!(
+                warn!(
                     "⚠️ Attempt {}/{} failed, retrying...",
                     attempt - 1,
                     self.config.max_retries
@@ -138,9 +139,10 @@ impl Client {
         Err(last_error.unwrap_or(McpError::MaxRetriesExceeded))
     }
 
+    #[instrument(skip(self, messages))]
     async fn execute_single_request(&self, messages: &[Message]) -> Result<String, McpError> {
         let url = self.provider.build_url(&self.config.base_url);
-        log::info!("📡 Requesting [{}] URL: {}", self.provider.name(), url);
+        info!("📡 Requesting [{}] URL: {}, api_key: {}", self.provider.name(), url, self.config.api_key);
 
         let body_json = self
             .provider

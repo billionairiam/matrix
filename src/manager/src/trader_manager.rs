@@ -704,7 +704,7 @@ impl TraderManager {
             aster_signer: String::new(),
             aster_private_key: String::new(),
             custom_api_key: String::new(),
-            scan_interval_sec: trader_cfg.scan_interval_minutes as u64,
+            scan_interval_sec: (trader_cfg.scan_interval_minutes as u64) * 60,
         };
 
         match exchange_cfg.id.as_str() {

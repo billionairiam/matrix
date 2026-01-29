@@ -47,10 +47,6 @@ fn get_re_decision_tag() -> &'static Regex {
     RE_DECISION_TAG.get_or_init(|| Regex::new(r"(?s)<decision>(.*?)</decision>").unwrap())
 }
 
-// ==========================================
-// Struct Definitions
-// ==========================================
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PositionInfo {
     pub symbol: String,

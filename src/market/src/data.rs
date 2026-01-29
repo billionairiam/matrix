@@ -147,7 +147,7 @@ pub async fn get_with_timeframes(
                 timeframe_data.insert(tf.clone(), series_data);
             }
             Err(e) => {
-                warn!("⚠️ Failed to get {} {} K-line: {}", symbol, tf, e);
+                warn!("⚠️ Failed to get {} K-line: {}, error: {}", symbol, tf, e);
                 continue;
             }
         }

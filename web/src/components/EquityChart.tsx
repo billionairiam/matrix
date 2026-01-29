@@ -102,7 +102,9 @@ export function EquityChart({ traderId, embedded = false }: EquityChartProps) {
   }
 
   // 过滤掉无效数据：total_equity为0或小于1的数据点（API失败导致）
-  const validHistory = history?.filter((point) => point.total_equity > 1) || []
+  // 确保history是数组
+  const isHistoryArray = Array.isArray(history)
+  const validHistory = isHistoryArray ? history.filter((point) => point.total_equity > 1) : []
 
   if (!validHistory || validHistory.length === 0) {
     return (

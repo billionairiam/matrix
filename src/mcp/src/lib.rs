@@ -15,21 +15,16 @@ pub mod request;
 pub mod request_builder;
 
 pub trait Provider: Send + Sync + Debug {
-    /// 获取提供商名称
     fn name(&self) -> &str;
 
-    /// 获取默认 BaseURL
     fn default_base_url(&self) -> &str;
 
-    /// 获取默认模型
     fn default_model(&self) -> &str;
 
-    /// 构建请求 URL (对应 Go hooks.buildUrl)
     fn build_url(&self, base_url: &str) -> String {
         format!("{}/chat/completions", base_url.trim_end_matches('/'))
     }
 
-    /// 设置鉴权头 (对应 Go hooks.setAuthHeader)
     fn set_auth_header(
         &self,
         builder: reqwest::RequestBuilder,
@@ -38,7 +33,6 @@ pub trait Provider: Send + Sync + Debug {
         builder.header("Authorization", format!("Bearer {}", api_key))
     }
 
-    /// 构建请求体 (对应 Go hooks.buildMCPRequestBody)
     fn build_request_body(&self, config: &Config, messages: Vec<Message>) -> Value {
         let req = ChatRequest {
             model: config.model.clone(),
@@ -49,9 +43,7 @@ pub trait Provider: Send + Sync + Debug {
         serde_json::to_value(req).unwrap_or(Value::Null)
     }
 
-    /// 解析响应 (对应 Go hooks.parseMCPResponse)
     fn parse_response(&self, body: &Value) -> Result<String, McpError> {
-        // 标准 OpenAI 格式解析
         body.get("choices")
             .and_then(|c| c.get(0))
             .and_then(|c| c.get("message"))
@@ -63,7 +55,6 @@ pub trait Provider: Send + Sync + Debug {
             })
     }
 
-    /// 判断是否可重试 (对应 Go hooks.isRetryableError)
     fn is_retryable(&self, err: &reqwest::Error) -> bool {
         err.is_timeout()
             || err.is_connect()

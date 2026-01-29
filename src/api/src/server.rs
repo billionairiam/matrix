@@ -42,7 +42,7 @@ use store::exchange::Exchange;
 use store::store::Store;
 use store::user::User;
 use tower_http::cors::{Any, CorsLayer};
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{error, info, instrument, warn};
 use trader::Trader;
 use uuid::Uuid;
 use validator::Validate;
@@ -137,7 +137,6 @@ pub struct CreateTraderRequest {
     #[validate(length(min = 1, message = "Name is required"))]
     pub name: String,
 
-    #[serde(rename = "ai_model")] // Map JSON "ai_model" to field "ai_model_id"
     #[validate(length(min = 1, message = "AI Model is required"))]
     pub ai_model_id: String,
 
@@ -145,19 +144,19 @@ pub struct CreateTraderRequest {
     pub exchange_id: String,
 
     pub strategy_id: Option<String>,
-    pub initial_balance: f64,
+    pub initial_balance: Option<f64>,
 
     pub btc_eth_leverage: Option<i32>,
     pub altcoin_leverage: Option<i32>,
     pub trading_symbols: Option<String>,
 
-    pub use_coin_pool: bool,
-    pub use_oi_top: bool,
+    pub use_coin_pool: Option<bool>,
+    pub use_oi_top: Option<bool>,
     pub custom_prompt: Option<String>,
-    pub override_base_prompt: bool,
+    pub override_base_prompt: Option<bool>,
     pub system_prompt_template: Option<String>,
     pub is_cross_margin: Option<bool>,
-    pub scan_interval_minutes: i32,
+    pub scan_interval_minutes: Option<i32>,
 }
 
 // UpdateTraderRequest
@@ -1495,13 +1494,13 @@ async fn handle_create_trader(
         .system_prompt_template
         .clone()
         .unwrap_or_else(|| "default".to_string());
-    let scan_interval_minutes = if req.scan_interval_minutes < 3 {
-        3
-    } else {
-        req.scan_interval_minutes
+    let scan_interval_minutes = match req.scan_interval_minutes {
+        Some(v) if v >= 3 => v,
+        Some(_) => 3,
+        None => 3,
     };
 
-    let mut actual_balance = req.initial_balance;
+    let mut actual_balance = req.initial_balance.unwrap_or(0.0);
 
     // Get Exchange Configs
     match state.store.exchange().await.list(&user.user_id).await {
@@ -1546,7 +1545,7 @@ async fn handle_create_trader(
                                             actual_balance = bal;
                                             info!(
                                                 "✓ Queried exchange actual balance: {:.2} USDT (user input: {:.2})",
-                                                actual_balance, req.initial_balance
+                                                actual_balance, req.initial_balance.unwrap_or_default()
                                             );
                                         }
                                     } else {
@@ -1567,7 +1566,7 @@ async fn handle_create_trader(
     }
 
     // Create Trader Entity (DB Record)
-    debug!("🔧: Creating trader config ID={}", trader_id);
+    info!("🔧: Creating trader config ID={}, balance: {}", trader_id, actual_balance);
     let trader_record = store::trader::Trader {
         id: trader_id.clone(),
         user_id: user.user_id.clone(),
@@ -1579,10 +1578,10 @@ async fn handle_create_trader(
         btc_eth_leverage,
         altcoin_leverage,
         trading_symbols: req.trading_symbols.clone().unwrap_or_default(),
-        use_coin_pool: req.use_coin_pool,
-        use_oi_top: req.use_oi_top,
+        use_coin_pool: req.use_coin_pool.unwrap_or(false),
+        use_oi_top: req.use_oi_top.unwrap_or(false),
         custom_prompt: req.custom_prompt.clone().unwrap_or_default(),
-        override_base_prompt: req.override_base_prompt,
+        override_base_prompt: req.override_base_prompt.unwrap_or(false),
         system_prompt_template,
         is_cross_margin,
         scan_interval_minutes,
@@ -2521,7 +2520,6 @@ pub async fn handle_update_model_configs(
 
     // Update each model's configuration
     for (model_id, model_data) in &req.models {
-        // Corresponding Go: s.store.AIModel().Update(...)
         if let Err(e) = state
             .store
             .ai_model()

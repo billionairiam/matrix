@@ -49,9 +49,16 @@ pub struct FuturesTrader {
 
 impl FuturesTrader {
     pub fn new(api_key: &String, secret_key: &String) -> Self {
-        let account_client = FuturesAccount::new(Some(api_key.clone()), Some(secret_key.clone()));
-        let general_client = FuturesGeneral::new(Some(api_key.clone()), Some(secret_key.clone()));
-        let market_client = FuturesMarket::new(Some(api_key.clone()), Some(secret_key.clone()));
+        let mut account_client =
+            FuturesAccount::new(Some(api_key.clone()), Some(secret_key.clone()));
+        let mut general_client =
+            FuturesGeneral::new(Some(api_key.clone()), Some(secret_key.clone()));
+        let mut market_client = FuturesMarket::new(Some(api_key.clone()), Some(secret_key.clone()));
+
+        let testnet_url = "https://testnet.binancefuture.com".to_string();
+        account_client.client.set_host(testnet_url.clone());
+        general_client.client.set_host(testnet_url.clone());
+        market_client.client.set_host(testnet_url.clone());
 
         // Note: Server time sync is usually handled automatically by the binance crate
         // during requests if configured, but we can do a manual check if strictly needed.

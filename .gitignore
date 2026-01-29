@@ -1,5 +1,6 @@
 /target
 .env
 /decision_logs
-*.db
+data.db
 /web/node_modules
+/web/dist
