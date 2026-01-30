@@ -626,7 +626,7 @@ fn parse_full_decision_response(
     })
 }
 
-#[instrument]
+#[instrument(skip_all)]
 fn extract_cot_trace(response: &str) -> String {
     if let Some(caps) = get_re_reasoning_tag().captures(response) {
         info!("✓ Extracted reasoning chain using <reasoning> tag");
@@ -646,7 +646,7 @@ fn extract_cot_trace(response: &str) -> String {
     response.trim().to_string()
 }
 
-#[instrument]
+#[instrument(skip_all)]
 fn extract_decisions(response: &str) -> Result<Vec<Decision>> {
     let mut s = remove_invisible_runes(response);
     s = s.trim().to_string();
@@ -772,7 +772,7 @@ fn validate_decisions(
     Ok(())
 }
 
-#[instrument]
+#[instrument(skip_all)]
 fn validate_decision(d: &Decision, equity: f64, btc_eth_lev: i32, alt_lev: i32) -> Result<()> {
     match d.action.as_str() {
         "open_long" | "open_short" | "close_long" | "close_short" | "hold" | "wait" => {}

@@ -19,7 +19,7 @@ static FUNDING_RATE_MAP: Lazy<DashMap<String, FundingRateCache>> = Lazy::new(Das
 const FR_CACHE_TTL: Duration = Duration::from_secs(3600); // 1 Hour
 
 /// Get retrieves market data for the specified token
-#[instrument]
+#[instrument(skip_all)]
 pub async fn get(symbol: &str) -> Result<Data> {
     let symbol = normalize(symbol);
     let wsmonitor_cli = WSMonitor::new(5 as usize);
@@ -106,7 +106,7 @@ pub async fn get(symbol: &str) -> Result<Data> {
 }
 
 /// get_with_timeframes retrieves market data for specified multiple timeframes
-#[instrument]
+#[instrument(skip_all)]
 pub async fn get_with_timeframes(
     symbol: &str,
     timeframes: &mut Vec<String>,
@@ -805,7 +805,7 @@ fn price_change_from_series(series: &[Kline], duration: ChronoDuration) -> f64 {
     0.0
 }
 
-#[instrument]
+#[instrument(skip_all)]
 fn is_stale_data(klines: &[Kline], symbol: &str) -> bool {
     if klines.len() < 5 {
         return false;

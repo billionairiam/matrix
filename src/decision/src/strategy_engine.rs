@@ -79,7 +79,7 @@ pub struct StrategyEngine {
 
 impl StrategyEngine {
     /// Creates strategy execution engine
-    #[instrument]
+    #[instrument(skip_all)]
     pub fn new(config: StrategyConfig) -> Self {
         Self {
             config,
