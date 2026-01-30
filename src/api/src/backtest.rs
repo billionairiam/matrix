@@ -30,7 +30,7 @@ use tracing::{info, instrument, warn};
 struct DeleteGuard(PathBuf);
 
 impl Drop for DeleteGuard {
-    #[instrument]
+    #[instrument(skip_all)]
     fn drop(&mut self) {
         // Attempt to remove the file. We use std::fs here because Drop is synchronous.
         // For small metadata operations, this is acceptable.

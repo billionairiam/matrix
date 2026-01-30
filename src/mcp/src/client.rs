@@ -109,7 +109,7 @@ impl Client {
         self.execute_with_retry(messages).await
     }
 
-    #[instrument(skip(self, messages))]
+    #[instrument(skip_all)]
     async fn execute_with_retry(&self, messages: Vec<Message>) -> Result<String, McpError> {
         let mut last_error = None;
 
@@ -139,7 +139,7 @@ impl Client {
         Err(last_error.unwrap_or(McpError::MaxRetriesExceeded))
     }
 
-    #[instrument(skip(self, messages))]
+    #[instrument(skip_all)]
     async fn execute_single_request(&self, messages: &[Message]) -> Result<String, McpError> {
         let url = self.provider.build_url(&self.config.base_url);
         info!("📡 Requesting [{}] URL: {}, api_key: {}", self.provider.name(), url, self.config.api_key);

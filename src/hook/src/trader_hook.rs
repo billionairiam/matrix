@@ -15,7 +15,7 @@ impl NewBinanceTraderResult {
         Self { client, err }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub fn error(&self) -> Option<&(dyn Error + Send + Sync)> {
         if let Some(e) = &self.err {
             info!("⚠️ Error executing NewBinanceTraderResult: {}", e);
@@ -42,7 +42,7 @@ impl NewAsterTraderResult {
         Self { client, err }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub fn error(&self) -> Option<&(dyn Error + Send + Sync)> {
         if let Some(e) = &self.err {
             warn!("⚠️ Error executing NewAsterTraderResult: {}", e);

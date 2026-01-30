@@ -26,7 +26,7 @@ pub struct HyperliquidTrader {
 
 impl HyperliquidTrader {
     /// Creates a new Hyperliquid trader instance
-    #[instrument(skip(private_key_hex))]
+    #[instrument(skip_all)]
     pub async fn new(private_key_hex: &str, wallet_addr_str: &str, testnet: bool) -> Result<Self> {
         // Remove 0x prefix if present
         let private_key_clean = private_key_hex.trim_start_matches("0x");
@@ -135,7 +135,7 @@ impl HyperliquidTrader {
         symbol.strip_suffix("USDT").unwrap_or(symbol).to_string()
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn get_sz_decimals(&self, coin: &str) -> u32 {
         let meta_guard = self.meta.read().await;
         if let Some(meta) = &*meta_guard {
@@ -183,7 +183,7 @@ impl HyperliquidTrader {
 #[async_trait]
 impl Trader for HyperliquidTrader {
     /// Gets account balance
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn get_balance(&self) -> Result<Map<String, Value>> {
         info!("🔄 Calling Hyperliquid API to get account balance...");
 
@@ -341,7 +341,7 @@ impl Trader for HyperliquidTrader {
     }
 
     /// Opens a long position
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn open_long(&self, symbol: &str, quantity: f64, leverage: i32) -> Result<Value> {
         self.cancel_all_orders(symbol)
             .await
@@ -485,7 +485,7 @@ impl Trader for HyperliquidTrader {
     }
 
     /// Closes a short position
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn close_short(&self, symbol: &str, mut quantity: f64) -> Result<Value> {
         if quantity == 0.0 {
             let positions = self.get_positions().await?;
@@ -542,7 +542,7 @@ impl Trader for HyperliquidTrader {
     }
 
     /// Sets leverage
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn set_leverage(&self, symbol: &str, leverage: i32) -> Result<()> {
         let coin = self.convert_symbol_to_hyperliquid(symbol);
         let is_cross = self.is_cross_margin.load(Ordering::Relaxed);
@@ -660,20 +660,20 @@ impl Trader for HyperliquidTrader {
     }
 
     // Since API can't distinguish TP/SL easily, we reuse logic
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn cancel_stop_loss_orders(&self, symbol: &str) -> Result<()> {
         warn!("  ⚠️ Hyperliquid cannot distinguish stop/limit, cancelling all for symbol");
         self.cancel_all_orders(symbol).await
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn cancel_take_profit_orders(&self, symbol: &str) -> Result<()> {
         warn!("  ⚠️ Hyperliquid cannot distinguish stop/limit, cancelling all for symbol");
         self.cancel_all_orders(symbol).await
     }
 
     /// Cancel orders
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn cancel_all_orders(&self, symbol: &str) -> Result<()> {
         let coin = self.convert_symbol_to_hyperliquid(symbol);
         let open_orders = self

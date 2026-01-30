@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
@@ -268,15 +268,20 @@ impl OrderStore {
                 leverage, status, fee, fee_asset, realized_pnl, entry_price,
                 created_at, updated_at, filled_at
             FROM trader_orders
-            WHERE trader_id = ? AND symbol = ? AND action = ? AND status = 'FILLED'
+            WHERE trader_id = ? AND symbol = ? AND action = ? AND status = 'NEW'
             ORDER BY filled_at DESC LIMIT 1
             "#,
         )
         .bind(trader_id)
         .bind(symbol)
         .bind(action)
-        .fetch_one(&self.db)
-        .await?;
+        .fetch_optional(&self.db)
+        .await
+        .context("Failed to fetch order")?
+        .ok_or_else(|| anyhow!(
+            "No {} position found for {} (trader: {})",
+            side, symbol, trader_id
+        ))?;
 
         Ok(order)
     }
@@ -292,7 +297,7 @@ impl OrderStore {
             SELECT symbol, action, side, executed_qty, entry_price, avg_price,
                 realized_pnl, fee, leverage, filled_at
             FROM trader_orders
-            WHERE trader_id = ? AND status = 'FILLED'
+            WHERE trader_id = ? AND status = 'NEW'
                 AND (action = 'close_long' OR action = 'close_short')
             ORDER BY filled_at DESC
             LIMIT ?
@@ -371,7 +376,7 @@ impl OrderStore {
             r#"
             SELECT realized_pnl, fee
             FROM trader_orders
-            WHERE trader_id = ? AND status = 'FILLED'
+            WHERE trader_id = ? AND status = 'NEW'
                 AND (action = 'close_long' OR action = 'close_short')
             ORDER BY filled_at ASC
             "#,

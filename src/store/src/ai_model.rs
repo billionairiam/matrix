@@ -215,7 +215,7 @@ impl AIModelStore {
     }
 
     // Update updates AI model, creates if not exists
-    #[instrument(skip(self, api_key))]
+    #[instrument(skip_all)]
     pub async fn update(
         &self,
         user_id: &str,

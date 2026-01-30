@@ -249,7 +249,7 @@ pub async fn get_full_decision_with_strategy(
 }
 
 /// Fetches market data using strategy config (multiple timeframes)
-#[instrument(skip(engine))]
+#[instrument(skip_all)]
 async fn fetch_market_data_with_strategy(ctx: &mut Context, engine: &StrategyEngine) -> Result<()> {
     let config = engine.get_config();
     let kline_config = &config.indicators.klines;

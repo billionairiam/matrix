@@ -45,7 +45,7 @@ impl WSMonitor {
         })
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub async fn initialize(self: &Arc<Self>, coins: Vec<String>) -> Result<()> {
         info!("Initializing WebSocket monitor...");
         let api_client = APIClient::new();
@@ -84,7 +84,7 @@ impl WSMonitor {
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn initialize_historical_data(self: &Arc<Self>) -> Result<()> {
         info!("Fetching historical data...");
         let symbols = self.symbols.read().await.clone();
@@ -141,7 +141,7 @@ impl WSMonitor {
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub async fn start(self: &Arc<Self>, coins: Vec<String>) {
         info!("Starting WebSocket real-time monitoring...");
 
@@ -161,7 +161,7 @@ impl WSMonitor {
         }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn subscribe_all(self: &Arc<Self>) -> Result<()> {
         info!("Starting to subscribe to all trading pairs...");
         let symbols = self.symbols.read().await.clone();
@@ -274,7 +274,7 @@ impl WSMonitor {
             .or_insert_with(|| vec![kline]);
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub async fn get_current_klines(
         self: &Arc<Self>,
         symbol: &str,

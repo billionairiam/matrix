@@ -370,8 +370,9 @@ impl DecisionStore {
             "SELECT MAX(cycle_number) FROM decision_records WHERE trader_id = ?",
         )
         .bind(trader_id)
-        .fetch_one(&self.pool)
-        .await?;
+        .fetch_optional(&self.pool)
+        .await?
+        .flatten();
 
         Ok(cycle_number.unwrap_or(0))
     }

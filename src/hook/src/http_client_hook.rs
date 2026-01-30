@@ -17,7 +17,7 @@ impl SetHttpClientResult {
         Self { client, err }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub fn error(&self) -> Option<&(dyn Error + Send + Sync)> {
         if let Some(e) = &self.err {
             info!("⚠️ Error executing SetHttpClientResult: {}", e);

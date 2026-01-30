@@ -61,7 +61,7 @@ impl TraderManager {
         traders.keys().cloned().collect()
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub async fn start_all(&self) {
         let traders = self.traders.read().await;
         info!("🚀 Starting all traders...");
@@ -79,7 +79,7 @@ impl TraderManager {
         }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub async fn stop_all(&self) {
         let traders = self.traders.read().await;
         info!("⏹  Stopping all traders...");
@@ -88,7 +88,7 @@ impl TraderManager {
         }
     }
 
-    #[instrument(skip(self, st))]
+    #[instrument(skip_all)]
     pub async fn auto_start_running_traders(&self, st: &Store) {
         let trader_list = match st.trader().await.list_all().await {
             Ok(list) => list,
@@ -167,7 +167,7 @@ impl TraderManager {
     }
 
     // GetCompetitionData retrieves competition data (all traders across platform)
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub async fn get_competition_data(&self) -> Result<Value> {
         // Check if cache is valid (within 30 seconds)
         {
@@ -380,7 +380,7 @@ impl TraderManager {
         }
     }
 
-    #[instrument(skip(self, st))]
+    #[instrument(skip_all)]
     pub async fn load_user_traders_from_store(&self, st: &Store, user_id: &str) -> Result<()> {
         let traders_cfg = st.trader().await.list(user_id).await?;
         info!(
@@ -489,7 +489,7 @@ impl TraderManager {
         Ok(())
     }
 
-    #[instrument(skip(self, st))]
+    #[instrument(skip_all)]
     pub async fn load_traders_from_store(&self, st: &Store) -> Result<()> {
         let user_ids = st.user().get_all_ids().await?;
         info!(
@@ -630,7 +630,7 @@ impl TraderManager {
         Ok(())
     }
 
-    #[instrument(skip(self, st))]
+    #[instrument(skip_all)]
     async fn add_trader_from_store(
         &self,
         trader_cfg: &Trader,

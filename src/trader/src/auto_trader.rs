@@ -200,10 +200,15 @@ impl AutoTrader {
         let trader: Box<dyn Trader> = match config.exchange.as_str() {
             "binance" => {
                 info!("🏦 [{}] Using Binance Futures", config.name);
-                Box::new(FuturesTrader::new(
+                let ft = FuturesTrader::new(
                     &config.binance_api_key,
                     &config.binance_secret_key,
-                ))
+                );
+                // Initialize Binance connection and set hedge mode
+                if let Err(e) = ft.init().await {
+                    warn!("⚠️ Failed to initialize Binance trader: {:?}", e);
+                }
+                Box::new(ft)
             }
             "hyperliquid" => {
                 info!("🏦 [{}] Using Hyperliquid", config.name);
@@ -309,7 +314,7 @@ impl AutoTrader {
         })
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub async fn run(&self) -> Result<()> {
         {
             let mut running = self.is_running.write().await;
@@ -355,7 +360,7 @@ impl AutoTrader {
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub async fn stop(&self) {
         let mut running = self.is_running.write().await;
         if *running {
@@ -365,7 +370,7 @@ impl AutoTrader {
         }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn run_cycle(&self) -> Result<()> {
         {
             let mut cc = self.call_count.write().await;
@@ -701,7 +706,7 @@ impl AutoTrader {
         }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn execute_open_long(
         &self,
         decision: &Decision,
@@ -723,15 +728,15 @@ impl AutoTrader {
         let market_data = get(&decision.symbol).await?;
 
         // Quantity Calc
-        let quantity = decision.position_size_usd.unwrap() / market_data.current_price;
+        let quantity = decision.position_size_usd.unwrap() / market_data.current_price * 0.8;
         record.quantity = quantity;
         record.price = market_data.current_price;
 
         // Balance Check
         let balance = self.trader.get_balance().await?;
         let required_margin =
-            decision.position_size_usd.unwrap() / (decision.leverage.unwrap() as f64);
-        let estimated_fee = decision.position_size_usd.unwrap() * 0.0004;
+            decision.position_size_usd.unwrap() * 0.8 / (decision.leverage.unwrap() as f64);
+        let estimated_fee = decision.position_size_usd.unwrap() * 0.8* 0.0004;
 
         let mut available_balance = 0.0;
         let available_balance_val = balance.get("availableBalance").unwrap();
@@ -809,7 +814,7 @@ impl AutoTrader {
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn execute_open_short(
         &self,
         decision: &Decision,
@@ -923,13 +928,13 @@ impl AutoTrader {
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn execute_close_long(
         &self,
         decision: &Decision,
         record: &mut DecisionAction,
     ) -> Result<()> {
-        info!("  🔄 Close Long: {}", decision.symbol);
+        info!("  🔄 Close Long: {}, self.id: {}", decision.symbol, &self.id);
 
         let market_date = get(&decision.symbol).await?;
         record.price = market_date.current_price;
@@ -966,7 +971,7 @@ impl AutoTrader {
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn execute_close_short(
         &self,
         decision: &Decision,
@@ -984,13 +989,13 @@ impl AutoTrader {
         if let Some(store) = (*self.store).as_ref() {
             let open_order = store
                 .order()
-                .get_latest_open_order(&self.id, &decision.symbol, "long")
+                .get_latest_open_order(&self.id, &decision.symbol, "short")
                 .await?;
             entry_price = open_order.avg_price;
             quantity = open_order.executed_qty;
         }
 
-        let order = self.trader.close_long(&decision.symbol, 0.0).await?; // 0.0 = close all 
+        let order = self.trader.close_short(&decision.symbol, 0.0).await?; // 0.0 = close all 
         let order_id = order.get("orderId").unwrap().as_i64().unwrap();
         record.order_id = order_id;
 
@@ -1009,7 +1014,7 @@ impl AutoTrader {
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub async fn get_account_info(&self) -> Result<Map<String, Value>> {
         let balance = self
             .trader
@@ -1164,7 +1169,7 @@ impl AutoTrader {
         "strategy".to_string()
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn run_drawdown_monitor(&self) {
         let mut ticker = interval(std::time::Duration::from_secs(60));
         info!("📊 Started position drawdown monitoring");
@@ -1194,7 +1199,7 @@ impl AutoTrader {
         self.exchange.clone()
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn check_position_drawdown(&self) {
         // Get current positions
         let positions = match self.trader.get_positions().await {
@@ -1292,7 +1297,7 @@ impl AutoTrader {
         decisions
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn save_equity_snapshot(&self, ctx: &Context) {
         if let Some(store) = (*self.store).as_ref() {
             let mut snapshot = EquitySnapshot {
@@ -1311,7 +1316,7 @@ impl AutoTrader {
         }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn save_decision(&self, mut record: DecisionRecord) -> Result<()> {
         if let Some(store) = (*self.store).as_ref() {
             {
@@ -1329,7 +1334,7 @@ impl AutoTrader {
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn record_and_confirm_order(
         &self,
         order_id: String,

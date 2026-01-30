@@ -224,7 +224,7 @@ impl StrategyEngine {
     }
 
     /// Fetches external data sources
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub async fn fetch_external_data(&self) -> Result<HashMap<String, Value>> {
         let mut external_data = HashMap::new();
 
@@ -274,7 +274,7 @@ impl StrategyEngine {
     }
 
     /// Batch fetches quantitative data
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub async fn fetch_quant_data_batch(
         &self,
         symbols: &Vec<String>,

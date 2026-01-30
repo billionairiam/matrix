@@ -74,13 +74,39 @@ impl FuturesTrader {
     }
 
     /// Async initialization to set hedge mode, mimicking the constructor logic
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub async fn init(&self) -> Result<()> {
         self.sync_server_time().await;
-        if let Err(e) = self.set_dual_side_position().await {
+
+        // Attempt to enable hedge mode up to 3 times with small delays
+        let mut last_error: Option<String> = None;
+        for attempt in 1..=3 {
+            match self.set_dual_side_position().await {
+                Ok(_) => {
+                    info!(
+                        "✓ Successfully initialized hedge mode on attempt {}",
+                        attempt
+                    );
+                    return Ok(());
+                }
+                Err(e) => {
+                    last_error = Some(format!("{:?}", e));
+                    warn!(
+                        "⚠️ Attempt {} to set dual-side position mode failed: {:?}",
+                        attempt, e
+                    );
+                    if attempt < 3 {
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                    }
+                }
+            }
+        }
+
+        // If all retries failed, log but don't fail - account might already be in hedge mode
+        if let Some(err) = last_error {
             warn!(
-                "⚠️ Failed to set dual-side position mode: {:?} (ignore if already set)",
-                e
+                "Could not explicitly enable hedge mode after 3 attempts: {}",
+                err
             );
         }
         Ok(())
@@ -104,7 +130,7 @@ impl FuturesTrader {
         order_id
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn sync_server_time(&self) {
         match self.general_client.get_server_time() {
             Ok(time) => {
@@ -121,11 +147,11 @@ impl FuturesTrader {
         }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub async fn set_dual_side_position(&self) -> Result<()> {
         match self.account_client.change_position_mode(true) {
             Ok(_) => {
-                info!("  ✓ Account has been switched to dual-side position mode (Hedge Mode)");
+                info!("  ✓ Account successfully switched to dual-side position mode (Hedge Mode)");
                 info!(
                     "  ℹ️  Dual-side position mode allows holding both long and short positions simultaneously"
                 );
@@ -133,17 +159,32 @@ impl FuturesTrader {
             }
             Err(e) => {
                 let err_msg = format!("{:?}", e);
-                if err_msg.contains("No need to change") {
+
+                // Check for various error patterns
+                if err_msg.contains("No need to change")
+                    || err_msg.contains("already")
+                    || err_msg.contains("already in")
+                    || err_msg.contains("same")
+                {
                     info!("  ✓ Account is already in dual-side position mode (Hedge Mode)");
                     Ok(())
+                } else if err_msg.contains("4046") || err_msg.contains("restricted") {
+                    // Error 4046: Account restricted from position mode change
+                    Err(anyhow!(
+                        "Account is restricted from changing position mode. Please check Binance account status. Error: {}",
+                        e
+                    ))
                 } else {
-                    Err(anyhow!("failed to get side position: {}", e))
+                    Err(anyhow!(
+                        "Failed to enable hedge mode. Make sure your Binance account supports dual-side position mode. Error: {}",
+                        e
+                    ))
                 }
             }
         }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub async fn get_positions(&self) -> Result<Vec<Map<String, Value>>> {
         let cache = self.positions_cache.read().await;
         if let Some(c) = &*cache {
@@ -231,7 +272,7 @@ impl FuturesTrader {
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub async fn get_symbol_precision(&self, symbol: &str) -> Result<usize> {
         let exchange_info = self
             .general_client
@@ -274,7 +315,7 @@ impl FuturesTrader {
 
 #[async_trait]
 impl Trader for FuturesTrader {
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn get_balance(&self) -> Result<Map<String, Value>> {
         let cache = self.balance_cache.read().await;
         if let Some(c) = &*cache {
@@ -323,7 +364,7 @@ impl Trader for FuturesTrader {
         }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn get_positions(&self) -> Result<Vec<Map<String, Value>>> {
         let cache = self.positions_cache.read().await;
         if let Some(c) = &*cache {
@@ -378,7 +419,7 @@ impl Trader for FuturesTrader {
         }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn open_long(&self, symbol: &str, quantity: f64, leverage: i32) -> Result<Value> {
         let _ = self.cancel_all_orders(symbol).await;
         self.set_leverage(symbol, leverage).await?;
@@ -392,9 +433,28 @@ impl Trader for FuturesTrader {
 
         self.check_min_notional(symbol, qty_float).await?;
 
-        let tx = self.account_client.market_buy(symbol, qty_float);
+        let order_id = Self::get_br_order_id();
 
-        match tx {
+        // Use CustomOrderRequest to explicitly specify LONG position side in hedge mode
+        let c_request = CustomOrderRequest {
+            symbol: symbol.to_string(),
+            side: OrderSide::Buy,
+            position_side: Some(PositionSide::Long),
+            order_type: OrderType::Market,
+            time_in_force: None,
+            qty: Some(qty_float),
+            reduce_only: None,
+            price: None,
+            stop_price: None,
+            close_position: None,
+            activation_price: None,
+            callback_rate: None,
+            working_type: None,
+            price_protect: None,
+            new_client_order_id: Some(order_id),
+        };
+
+        match self.account_client.custom_order(c_request) {
             Ok(transaction) => {
                 info!(
                     "✓ Opened long position successfully: {} quantity: {}",
@@ -407,11 +467,34 @@ impl Trader for FuturesTrader {
                     "status": transaction.status
                 }))
             }
-            Err(e) => Err(anyhow!("failed to open long position: {:?}", e)),
+            Err(e) => {
+                let err_msg = format!("{:?}", e);
+
+                // Provide helpful diagnostics for common errors
+                if err_msg.contains("-4061") || err_msg.contains("position side does not match") {
+                    Err(anyhow!(
+                        "Position side error: Account may not be in hedge mode. \
+                        Please ensure dual-side position mode is enabled in Binance. \
+                        Original error: {}",
+                        e
+                    ))
+                } else if err_msg.contains("-4164") || err_msg.contains("notional") {
+                    Err(anyhow!(
+                        "Order notional value too small. Minimum 100 USDT required. \
+                        Current: qty={}, symbol={}. \
+                        Original error: {}",
+                        qty_float,
+                        symbol,
+                        e
+                    ))
+                } else {
+                    Err(anyhow!("failed to open long position: {:?}", e))
+                }
+            }
         }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn open_short(&self, symbol: &str, quantity: f64, leverage: i32) -> Result<Value> {
         let _ = self.cancel_all_orders(symbol).await;
         self.set_leverage(symbol, leverage).await?;
@@ -425,9 +508,28 @@ impl Trader for FuturesTrader {
 
         self.check_min_notional(symbol, qty_float).await?;
 
-        let tx = self.account_client.market_sell(symbol, qty_float);
+        let order_id = Self::get_br_order_id();
 
-        match tx {
+        // Use CustomOrderRequest to explicitly specify SHORT position side in hedge mode
+        let c_request = CustomOrderRequest {
+            symbol: symbol.to_string(),
+            side: OrderSide::Sell,
+            position_side: Some(PositionSide::Short),
+            order_type: OrderType::Market,
+            time_in_force: None,
+            qty: Some(qty_float),
+            reduce_only: None,
+            price: None,
+            stop_price: None,
+            close_position: None,
+            activation_price: None,
+            callback_rate: None,
+            working_type: None,
+            price_protect: None,
+            new_client_order_id: Some(order_id),
+        };
+
+        match self.account_client.custom_order(c_request) {
             Ok(transaction) => {
                 info!(
                     "✓ Opened short position successfully: {} quantity: {}",
@@ -440,11 +542,34 @@ impl Trader for FuturesTrader {
                     "status": transaction.status
                 }))
             }
-            Err(e) => Err(anyhow!("failed to open short position: {:?}", e)),
+            Err(e) => {
+                let err_msg = format!("{:?}", e);
+
+                // Provide helpful diagnostics for common errors
+                if err_msg.contains("-4061") || err_msg.contains("position side does not match") {
+                    Err(anyhow!(
+                        "Position side error: Account may not be in hedge mode. \
+                        Please ensure dual-side position mode is enabled in Binance. \
+                        Original error: {}",
+                        e
+                    ))
+                } else if err_msg.contains("-4164") || err_msg.contains("notional") {
+                    Err(anyhow!(
+                        "Order notional value too small. Minimum 100 USDT required. \
+                        Current: qty={}, symbol={}. \
+                        Original error: {}",
+                        qty_float,
+                        symbol,
+                        e
+                    ))
+                } else {
+                    Err(anyhow!("failed to open short position: {:?}", e))
+                }
+            }
         }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn close_long(&self, symbol: &str, mut quantity: f64) -> Result<Value> {
         if quantity == 0.0 {
             let positions = self.get_positions().await?;
@@ -462,9 +587,28 @@ impl Trader for FuturesTrader {
         let quantity_str = self.format_quantity(symbol, quantity).await?;
         let qty_float: f64 = quantity_str.parse()?;
 
-        let tx = self.account_client.market_sell(symbol, qty_float);
+        let order_id = Self::get_br_order_id();
 
-        match tx {
+        // Use CustomOrderRequest to explicitly specify LONG position side for closing
+        let c_request = CustomOrderRequest {
+            symbol: symbol.to_string(),
+            side: OrderSide::Sell,
+            position_side: Some(PositionSide::Long),
+            order_type: OrderType::Market,
+            time_in_force: None,
+            qty: Some(qty_float),
+            reduce_only: None,
+            price: None,
+            stop_price: None,
+            close_position: None,
+            activation_price: None,
+            callback_rate: None,
+            working_type: None,
+            price_protect: None,
+            new_client_order_id: Some(order_id),
+        };
+
+        match self.account_client.custom_order(c_request) {
             Ok(transaction) => {
                 info!(
                     "✓ Closed long position successfully: {} quantity: {}",
@@ -481,9 +625,14 @@ impl Trader for FuturesTrader {
         }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn close_short(&self, symbol: &str, mut quantity: f64) -> Result<Value> {
         if quantity == 0.0 {
+            // Force refresh cache to ensure we have latest position info
+            {
+                let mut cache = self.positions_cache.write().await;
+                *cache = None;
+            }
             let positions = self.get_positions().await?;
             for pos in positions {
                 if pos["symbol"] == symbol && pos["side"] == "short" {
@@ -500,9 +649,28 @@ impl Trader for FuturesTrader {
         let quantity_str = self.format_quantity(symbol, quantity).await?;
         let qty_float: f64 = quantity_str.parse()?;
 
-        let tx = self.account_client.market_buy(symbol, qty_float);
+        let order_id = Self::get_br_order_id();
 
-        match tx {
+        // Use CustomOrderRequest to explicitly specify SHORT position side for closing
+        let c_request = CustomOrderRequest {
+            symbol: symbol.to_string(),
+            side: OrderSide::Buy,
+            position_side: Some(PositionSide::Short),
+            order_type: OrderType::Market,
+            time_in_force: None,
+            qty: Some(qty_float),
+            reduce_only: None,
+            price: None,
+            stop_price: None,
+            close_position: None,
+            activation_price: None,
+            callback_rate: None,
+            working_type: None,
+            price_protect: None,
+            new_client_order_id: Some(order_id),
+        };
+
+        match self.account_client.custom_order(c_request) {
             Ok(transaction) => {
                 info!(
                     "✓ Closed short position successfully: {} quantity: {}",
@@ -519,7 +687,7 @@ impl Trader for FuturesTrader {
         }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn set_leverage(&self, symbol: &str, leverage: i32) -> Result<()> {
         // Check current leverage (optimistic check)
         if let Ok(positions) = self.get_positions().await {
@@ -557,7 +725,7 @@ impl Trader for FuturesTrader {
         }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn set_margin_mode(&self, symbol: &str, is_cross_margin: bool) -> Result<()> {
         let mode_str = if is_cross_margin {
             "Cross Margin"
@@ -702,7 +870,7 @@ impl Trader for FuturesTrader {
     }
 
     // This implements the logic to selectively cancel StopLoss/TakeProfit orders
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn cancel_stop_loss_orders(&self, symbol: &str) -> Result<()> {
         let open_orders = self
             .account_client
@@ -749,7 +917,7 @@ impl Trader for FuturesTrader {
         }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn cancel_take_profit_orders(&self, symbol: &str) -> Result<()> {
         let open_orders = self
             .account_client

@@ -6516,6 +6516,7 @@ dependencies = [
  "store",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

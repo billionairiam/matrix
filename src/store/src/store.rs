@@ -142,7 +142,7 @@ impl Store {
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn init_default_data(&self) -> Result<()> {
         self.ai_model().await.init_default_data().await?;
         self.exchange().await.init_default_data().await?;

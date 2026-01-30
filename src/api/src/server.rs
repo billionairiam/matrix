@@ -279,7 +279,7 @@ impl Server {
         Self { port, state }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub async fn run(self) -> Result<()> {
         let cors = CorsLayer::new()
             .allow_origin(Any)
@@ -567,7 +567,7 @@ async fn handle_crypto_public_key(State(state): State<AppState>) -> impl IntoRes
     }))
 }
 
-#[instrument(skip(state, payload))]
+#[instrument(skip_all)]
 async fn handle_crypto_decrypt(
     State(state): State<AppState>,
     Json(payload): Json<crypto::crypto::EncryptedPayload>,
@@ -717,7 +717,7 @@ async fn handle_top_traders(State(state): State<AppState>) -> impl IntoResponse 
 
 // get_trader_from_query
 // Helper function to resolve trader_id from query or fallback to default
-#[instrument(skip(state))]
+#[instrument(skip_all)]
 pub async fn get_trader_from_query(
     state: &AppState,
     user_id: &str,
@@ -1444,7 +1444,7 @@ pub async fn handle_get_trader_config(
     Json(result).into_response()
 }
 
-#[instrument(skip(state))]
+#[instrument(skip_all)]
 async fn handle_create_trader(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
@@ -1662,7 +1662,7 @@ async fn create_temp_trader_client(
 }
 
 // handle_update_trader Update trader configuration
-#[instrument(skip(state))]
+#[instrument(skip_all)]
 pub async fn handle_update_trader(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
@@ -1810,7 +1810,7 @@ pub async fn handle_update_trader(
 }
 
 // handle_delete_trader Delete trader
-#[instrument(skip(state))]
+#[instrument(skip_all)]
 pub async fn handle_delete_trader(
     State(state): State<AppState>,
     // Extract user_id from middleware
@@ -1860,7 +1860,7 @@ pub async fn handle_delete_trader(
 }
 
 // handle_start_trader Start trader
-#[instrument(skip(state))]
+#[instrument(skip_all)]
 pub async fn handle_start_trader(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
@@ -2008,7 +2008,7 @@ pub async fn handle_start_trader(
 }
 
 // handle_stop_trader Stop trader
-#[instrument(skip(state))]
+#[instrument(skip_all)]
 pub async fn handle_stop_trader(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
@@ -2076,7 +2076,7 @@ pub async fn handle_stop_trader(
 }
 
 // handle_update_trader_prompt Update trader custom prompt
-#[instrument(skip(state))]
+#[instrument(skip_all)]
 pub async fn handle_update_trader_prompt(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
@@ -2130,7 +2130,7 @@ pub async fn handle_update_trader_prompt(
 }
 
 // handle_sync_balance Sync exchange balance to initial_balance
-#[instrument(skip(state))]
+#[instrument(skip_all)]
 pub async fn handle_sync_balance(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
@@ -2287,7 +2287,7 @@ pub async fn handle_sync_balance(
 }
 
 // handle_close_position One-click close position
-#[instrument(skip(state))]
+#[instrument(skip_all)]
 pub async fn handle_close_position(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
@@ -2410,7 +2410,7 @@ pub async fn handle_close_position(
 }
 
 // handle_get_model_configs Get AI model configurations
-#[instrument(skip(state))]
+#[instrument(skip_all)]
 pub async fn handle_get_model_configs(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
@@ -2455,7 +2455,7 @@ pub async fn handle_get_model_configs(
 }
 
 // handle_update_model_configs Update AI model configurations (encrypted data only)
-#[instrument(skip(state))]
+#[instrument(skip_all)]
 pub async fn handle_update_model_configs(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
@@ -2567,7 +2567,7 @@ pub async fn handle_update_model_configs(
 }
 
 // handle_get_exchange_configs Get exchange configurations
-#[instrument(skip(state))]
+#[instrument(skip_all)]
 pub async fn handle_get_exchange_configs(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
@@ -2611,7 +2611,7 @@ pub async fn handle_get_exchange_configs(
 }
 
 // handle_update_exchange_configs Update exchange configurations (encrypted data only)
-#[instrument(skip(state))]
+#[instrument(skip_all)]
 pub async fn handle_update_exchange_configs(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
@@ -2768,7 +2768,7 @@ pub async fn handle_status(
 }
 
 // handle_account Account information
-#[instrument(skip(state))]
+#[instrument(skip_all)]
 pub async fn handle_account(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
@@ -2836,7 +2836,7 @@ pub async fn handle_account(
 }
 
 // handle_positions Position list
-#[instrument(skip(state))]
+#[instrument(skip_all)]
 pub async fn handle_positions(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,

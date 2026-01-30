@@ -73,7 +73,7 @@ pub struct StrategyTestRunRequest {
 }
 
 // handle_strategy_test_run AI test run
-#[instrument(skip(state))]
+#[instrument(skip_all)]
 pub async fn handle_strategy_test_run(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
@@ -410,7 +410,7 @@ pub async fn handle_create_strategy(
 }
 
 // handle_update_strategy Update strategy
-#[instrument(skip(state))]
+#[instrument(skip_all)]
 pub async fn handle_update_strategy(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
@@ -481,7 +481,7 @@ pub async fn handle_update_strategy(
 }
 
 // handle_delete_strategy Delete strategy
-#[instrument(skip(state))]
+#[instrument(skip_all)]
 pub async fn handle_delete_strategy(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
@@ -511,7 +511,7 @@ pub async fn handle_delete_strategy(
 }
 
 // handle_activate_strategy Activate strategy
-#[instrument(skip(state))]
+#[instrument(skip_all)]
 pub async fn handle_activate_strategy(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
@@ -541,7 +541,7 @@ pub async fn handle_activate_strategy(
 }
 
 // handle_duplicate_strategy Duplicate strategy
-#[instrument(skip(state))]
+#[instrument(skip_all)]
 pub async fn handle_duplicate_strategy(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,

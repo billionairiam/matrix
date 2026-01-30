@@ -258,7 +258,7 @@ impl Runner {
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn lock_heartbeat_loop(self: Arc<Self>) -> Result<()> {
         let mut ticker = interval(LOCK_HEARTBEAT_INTERVAL);
         ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -1111,7 +1111,7 @@ impl Runner {
         self.error_state.write().await.last_error = err;
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub async fn persist_metadata(&self) {
         let state = { self.state.read().await.clone() };
         let status = { self.status.read().await.clone() };

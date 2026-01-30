@@ -358,7 +358,7 @@ impl AsterTrader {
 
 #[async_trait]
 impl Trader for AsterTrader {
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn get_balance(&self) -> Result<Map<String, Value>> {
         let params = Map::new();
         let body = self
@@ -504,7 +504,7 @@ impl Trader for AsterTrader {
         Ok(result)
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn open_long(&self, symbol: &str, quantity: f64, leverage: i32) -> Result<Value> {
         if let Err(e) = self.cancel_all_orders(symbol).await {
             info!("  ⚠ Failed to cancel pending orders: {}", e);
@@ -546,7 +546,7 @@ impl Trader for AsterTrader {
         self.request(Method::POST, "/fapi/v3/order", params).await
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn open_short(&self, symbol: &str, quantity: f64, leverage: i32) -> Result<Value> {
         if let Err(e) = self.cancel_all_orders(symbol).await {
             info!("  ⚠ Failed to cancel pending orders: {}", e);
@@ -588,7 +588,7 @@ impl Trader for AsterTrader {
         self.request(Method::POST, "/fapi/v3/order", params).await
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn close_long(&self, symbol: &str, mut quantity: f64) -> Result<Value> {
         if quantity == 0.0 {
             let positions = self.get_positions().await?;
@@ -646,7 +646,7 @@ impl Trader for AsterTrader {
         Ok(res)
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn close_short(&self, symbol: &str, mut quantity: f64) -> Result<Value> {
         if quantity == 0.0 {
             let positions = self.get_positions().await?;
@@ -713,7 +713,7 @@ impl Trader for AsterTrader {
             .map(|_| ())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn set_margin_mode(&self, symbol: &str, is_cross_margin: bool) -> Result<()> {
         let margin_type = if is_cross_margin {
             "CROSSED"
@@ -855,7 +855,7 @@ impl Trader for AsterTrader {
             .map(|_| ())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn cancel_stop_loss_orders(&self, symbol: &str) -> Result<()> {
         let mut params = Map::new();
         params.insert("symbol".into(), symbol.into());
@@ -917,7 +917,7 @@ impl Trader for AsterTrader {
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn cancel_take_profit_orders(&self, symbol: &str) -> Result<()> {
         let mut params = Map::new();
         params.insert("symbol".into(), symbol.into());
@@ -987,7 +987,7 @@ impl Trader for AsterTrader {
             .map(|_| ())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn cancel_stop_orders(&self, symbol: &str) -> Result<()> {
         let mut params = Map::new();
         params.insert("symbol".into(), symbol.into());

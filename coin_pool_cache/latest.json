@@ -1,36 +1,16 @@
 {
   "coins": [
     {
-      "pair": "QUSDT",
-      "score": 74.36398771217706,
-      "start_time": 1768567500,
-      "start_price": 0.017443,
-      "last_score": 74.72193119813403,
-      "max_score": 74.72193119813403,
-      "max_price": 0.033082,
-      "increase_percent": 89.65774236083243
-    },
-    {
-      "pair": "PIPPINUSDT",
-      "score": 73.756,
-      "start_time": 1769329500,
-      "start_price": 0.33651,
-      "last_score": 78.025,
-      "max_score": 83.953,
-      "max_price": 0.54925,
-      "increase_percent": 63.219517993521755
-    },
-    {
-      "pair": "PLAYUSDT",
-      "score": 70.57505911905042,
-      "start_time": 1767651600,
-      "start_price": 0.04168,
-      "last_score": 66.1405375821301,
-      "max_score": 89.35652736476003,
-      "max_price": 0.12512,
-      "increase_percent": 200.19193857965453
+      "pair": "SENTUSDT",
+      "score": 70.07321833139008,
+      "start_time": 1768781100,
+      "start_price": 0.02217,
+      "last_score": 75.87479151273024,
+      "max_score": 81.69243052639,
+      "max_price": 0.03293,
+      "increase_percent": 48.534055029318914
     }
   ],
-  "fetched_at": "2026-01-29T05:09:14.886912547Z",
+  "fetched_at": "2026-01-30T00:54:00.347010111Z",
   "source_type": "api"
 }

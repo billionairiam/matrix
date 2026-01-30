@@ -136,7 +136,7 @@ impl WSClient {
 
     // Connects to the WebSocket.
     // Note: This is an async fn.
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub async fn connect(&self) -> Result<(), String> {
         let url = Url::parse("wss://ws-fapi.binance.com/ws-fapi/v1")
             .map_err(|e| format!("Invalid URL: {}", e))?;
@@ -178,7 +178,7 @@ impl WSClient {
         self.subscribe(&stream).await
     }
 
-    #[instrument(skip(self, stream))]
+    #[instrument(skip_all)]
     async fn subscribe(&self, stream: &str) -> Result<(), String> {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -206,7 +206,7 @@ impl WSClient {
         }
     }
 
-    #[instrument(skip(self, read))]
+    #[instrument(skip_all)]
     async fn read_messages(
         &self,
         mut read: futures_util::stream::SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
@@ -240,7 +240,7 @@ impl WSClient {
         self.handle_reconnect();
     }
 
-    #[instrument(skip(self, text))]
+    #[instrument(skip_all)]
     async fn handle_message(&self, text: &str) {
         // Parse the generic structure to get the stream name
         let parsed: Result<WSMessage, _> = serde_json::from_str(text);
@@ -265,7 +265,7 @@ impl WSClient {
     // Changed to a synchronous function that spawns the async task.
     // This breaks the recursive opaque type cycle:
     // connect -> read_messages -> handle_reconnect -> spawn(connect)
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     fn handle_reconnect(&self) {
         if !self.reconnect || self.shutdown_tx.is_closed() {
             return;

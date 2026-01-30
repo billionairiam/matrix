@@ -168,7 +168,7 @@ impl CoinPoolClient {
         *use_default_coins_write = use_default;
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub async fn set_default_coins(&mut self, coins: Vec<String>) {
         if !coins.is_empty() {
             info!(
@@ -182,7 +182,7 @@ impl CoinPoolClient {
         }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub async fn get_coin_pool(&self) -> Result<Vec<CoinInfo>> {
         let (use_default, api_url) = {
             let use_default_lock = self.config.use_default_coins.read().await;
@@ -248,7 +248,7 @@ impl CoinPoolClient {
         Ok(self.convert_symbols_to_coins(&default_coins))
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn fetch_coin_pool(&self) -> Result<Vec<CoinInfo>> {
         info!("🔄 Requesting AI500 coin pool...");
 
@@ -293,7 +293,7 @@ impl CoinPoolClient {
         Ok(coins)
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn save_coin_pool_cache(&self, coins: &[CoinInfo]) -> Result<()> {
         fs::create_dir_all(self.config.cache_dir.as_ref()).await?;
 
@@ -311,7 +311,7 @@ impl CoinPoolClient {
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn load_coin_pool_cache(&self) -> Result<Vec<CoinInfo>> {
         let path = Path::new(self.config.cache_dir.as_ref()).join("latest.json");
         if !path.exists() {
@@ -384,7 +384,7 @@ impl CoinPoolClient {
     // ==========================================
     // OI Top Logic
     // ==========================================
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub async fn get_oi_top_positions(&self) -> Result<Vec<OIPosition>> {
         let api_url = {
             let api_url_lock = self.oi_config.api_url.read().await;
@@ -483,7 +483,7 @@ impl CoinPoolClient {
         Ok(body.data.positions)
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn save_oi_top_cache(&self, positions: &[OIPosition]) -> Result<()> {
         fs::create_dir_all(self.oi_config.cache_dir.as_ref()).await?;
 
@@ -501,7 +501,7 @@ impl CoinPoolClient {
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn load_oi_top_cache(&self) -> Result<Vec<OIPosition>> {
         let path = Path::new(self.oi_config.cache_dir.as_ref()).join("oi_top_latest.json");
         if !path.exists() {
@@ -540,7 +540,7 @@ impl CoinPoolClient {
     // ==========================================
     // Merged Pool Logic
     // ==========================================
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub async fn get_merged_coin_pool(&self, ai500_limit: usize) -> Result<MergedCoinPool> {
         // 1. Get AI500 data
         let ai500_top_symbols = match self.get_top_rated_coins(ai500_limit).await {
