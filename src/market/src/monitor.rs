@@ -2,13 +2,61 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::combined_streams::CombinedStreamsClient;
-use super::websocket_client::{KlineWSData, WSClient};
 use crate::api_client::APIClient;
+use serde::{Serialize, Deserialize};
 use crate::types::Kline;
 use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
 use tokio::sync::{RwLock, Semaphore};
 use tracing::{error, info, instrument, warn};
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct KlineWSData {
+    #[serde(rename = "e")]
+    pub event_type: String,
+    #[serde(rename = "E")]
+    pub event_time: i64,
+    #[serde(rename = "s")]
+    pub symbol: String,
+    #[serde(rename = "k")]
+    pub kline: KlineDetail,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct KlineDetail {
+    #[serde(rename = "t")]
+    pub start_time: i64,
+    #[serde(rename = "T")]
+    pub close_time: i64,
+    #[serde(rename = "s")]
+    pub symbol: String,
+    #[serde(rename = "i")]
+    pub interval: String,
+    #[serde(rename = "f")]
+    pub first_trade_id: i64,
+    #[serde(rename = "L")]
+    pub last_trade_id: i64,
+    #[serde(rename = "o")]
+    pub open_price: String,
+    #[serde(rename = "c")]
+    pub close_price: String,
+    #[serde(rename = "h")]
+    pub high_price: String,
+    #[serde(rename = "l")]
+    pub low_price: String,
+    #[serde(rename = "v")]
+    pub volume: String,
+    #[serde(rename = "n")]
+    pub number_of_trades: i64,
+    #[serde(rename = "x")]
+    pub is_final: bool,
+    #[serde(rename = "q")]
+    pub quote_volume: String,
+    #[serde(rename = "V")]
+    pub taker_buy_base_volume: String,
+    #[serde(rename = "Q")]
+    pub taker_buy_quote_volume: String,
+}
 
 const SUB_KLINE_TIME: [&str; 2] = ["3m", "4h"];
 
@@ -23,7 +71,6 @@ pub struct SymbolStats {
 
 #[derive(Debug)]
 pub struct WSMonitor {
-    ws_client: WSClient,
     combined_client: CombinedStreamsClient,
 
     symbols: RwLock<Vec<String>>,
@@ -36,7 +83,6 @@ pub struct WSMonitor {
 impl WSMonitor {
     pub fn new(batch_size: usize) -> Arc<Self> {
         Arc::new(Self {
-            ws_client: WSClient::new(),
             combined_client: CombinedStreamsClient::new(batch_size),
             symbols: RwLock::new(Vec::new()),
             filter_symbols: RwLock::new(HashMap::new()),
@@ -315,7 +361,7 @@ impl WSMonitor {
         let stream_str = self.subscribe_symbol(symbol, interval).await;
         if let Err(e) = self
             .combined_client
-            .subscribe_streams(vec![stream_str.clone()])
+            .send_subscribe_payload(vec![stream_str.clone()])
             .await
         {
             warn!(
@@ -330,7 +376,6 @@ impl WSMonitor {
     }
 
     pub async fn close(&mut self) {
-        self.ws_client.close().await;
         self.combined_client.close().await;
     }
 }
