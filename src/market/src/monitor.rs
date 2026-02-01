@@ -3,12 +3,14 @@ use std::sync::Arc;
 
 use super::combined_streams::CombinedStreamsClient;
 use crate::api_client::APIClient;
-use serde::{Serialize, Deserialize};
 use crate::types::Kline;
 use anyhow::{Context, Result, anyhow};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::sync::{RwLock, Semaphore};
+use tokio::sync::{RwLock, Semaphore, OnceCell};
 use tracing::{error, info, instrument, warn};
+
+static INSTANCE: OnceCell<Arc<WSMonitor>> = OnceCell::const_new();
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct KlineWSData {
@@ -340,7 +342,7 @@ impl WSMonitor {
                 // Return deep copy
                 return Ok(klines.clone());
             }
-        } // Drop read lock
+        }
 
         // Cache miss: Fetch via API
         info!("Cache miss for {} {}, fetching via API", symbol, interval);
@@ -377,5 +379,13 @@ impl WSMonitor {
 
     pub async fn close(&mut self) {
         self.combined_client.close().await;
+    }
+
+    pub async fn global() -> &'static Arc<Self> {
+        INSTANCE.get_or_init(|| async {
+            let monitor = Self::new(100);
+            monitor.start(vec![]).await; 
+            monitor
+        }).await
     }
 }

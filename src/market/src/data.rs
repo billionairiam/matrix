@@ -22,7 +22,7 @@ const FR_CACHE_TTL: Duration = Duration::from_secs(3600); // 1 Hour
 #[instrument(skip_all)]
 pub async fn get(symbol: &str) -> Result<Data> {
     let symbol = normalize(symbol);
-    let wsmonitor_cli = WSMonitor::new(5 as usize);
+    let wsmonitor_cli = WSMonitor::global().await;
 
     // Get 3-minute K-line data (latest 10+)
     let klines3m = wsmonitor_cli
@@ -128,7 +128,7 @@ pub async fn get_with_timeframes(
 
     let mut timeframe_data = std::collections::HashMap::new();
     let mut primary_klines: Option<Vec<Kline>> = None;
-    let wsmonitor_cli = WSMonitor::new(5 as usize);
+    let wsmonitor_cli = WSMonitor::global().await;
     // Get K-line data for each timeframe
     for tf in timeframes {
         match wsmonitor_cli.get_current_klines(&symbol, tf).await {

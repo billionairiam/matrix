@@ -1525,14 +1525,26 @@ async fn handle_create_trader(
                     // Create Temporary Trader Client
                     // Note: This logic depends on your `trader` module implementation.
                     // Assuming create_temp_trader returns Box<dyn TraderTrait>
+                    //
+                    // IMPORTANT: For Hyperliquid SDK, the ExchangeClient and InfoClient create
+                    // internal tokio runtimes. Dropping these from an async context causes a panic.
+                    // We use spawn_blocking to safely drop the client.
                     let temp_trader_result =
                         create_temp_trader_client(&req.exchange_id, exchange_cfg).await;
 
                     match temp_trader_result {
                         Err(e) => warn!("⚠️ Failed to create temp trader: {:?}", e),
                         Ok(client) => {
-                            // Query Balance
-                            match client.get_balance().await {
+                            // Query Balance first, then drop client safely
+                            let balance_result = client.get_balance().await;
+
+                            // Drop the client in a blocking context to avoid runtime panic
+                            // This is necessary because the Hyperliquid SDK creates internal runtimes
+                            tokio::task::spawn_blocking(move || {
+                                drop(client);
+                            });
+
+                            match balance_result {
                                 Err(e) => warn!("⚠️ Failed to query balance: {:?}", e),
                                 Ok(balance_info) => {
                                     // Extract Available Balance
@@ -1550,7 +1562,8 @@ async fn handle_create_trader(
                                             actual_balance = bal;
                                             info!(
                                                 "✓ Queried exchange actual balance: {:.2} USDT (user input: {:.2})",
-                                                actual_balance, req.initial_balance.unwrap_or_default()
+                                                actual_balance,
+                                                req.initial_balance.unwrap_or_default()
                                             );
                                         }
                                     } else {
@@ -1571,7 +1584,10 @@ async fn handle_create_trader(
     }
 
     // Create Trader Entity (DB Record)
-    info!("🔧: Creating trader config ID={}, balance: {}", trader_id, actual_balance);
+    info!(
+        "🔧: Creating trader config ID={}, balance: {}",
+        trader_id, actual_balance
+    );
     let trader_record = store::trader::Trader {
         id: trader_id.clone(),
         user_id: user.user_id.clone(),

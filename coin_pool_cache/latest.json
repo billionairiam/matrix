@@ -1,16 +1,16 @@
 {
   "coins": [
     {
-      "pair": "SENTUSDT",
-      "score": 70.07321833139008,
-      "start_time": 1768781100,
-      "start_price": 0.02217,
-      "last_score": 75.87479151273024,
-      "max_score": 81.69243052639,
-      "max_price": 0.03293,
-      "increase_percent": 48.534055029318914
+      "pair": "BULLAUSDT",
+      "score": 83.042,
+      "start_time": 1769665800,
+      "start_price": 0.09338,
+      "last_score": 81.177,
+      "max_score": 93.076,
+      "max_price": 0.37976,
+      "increase_percent": 306.68237309916464
     }
   ],
-  "fetched_at": "2026-01-30T00:54:14.547908557Z",
+  "fetched_at": "2026-02-01T08:53:49.725719700Z",
   "source_type": "api"
 }

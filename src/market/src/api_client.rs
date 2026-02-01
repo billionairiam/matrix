@@ -19,19 +19,6 @@ impl APIClient {
             .build()
             .expect("Failed to build HTTP client");
 
-        // Logic to use your custom hook (commented out to make code compile for checking, uncomment in your real project)
-        /*
-        match hook_exec::<SetHttpClientResult>(SET_HTTP_CLIENT, args!(client.clone())) {
-            Some(hook_res) => {
-                info!("Using HTTP client set by Hook");
-                if let Ok(c) = hook_res.get_result() {
-                    client = c;
-                }
-            }
-            _ => {}
-        }
-        */
-
         Self { client }
     }
 
