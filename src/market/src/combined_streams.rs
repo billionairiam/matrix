@@ -125,7 +125,7 @@ impl CombinedStreamsClient {
     }
 
     /// Sends the subscription message for a list of streams
-    pub async fn send_subscribe_payload(&self, streams: Vec<String>) -> Result<(), String> {
+    pub async fn send_subscribe_payload(&self, streams: Vec<String>) -> Result<()> {
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let payload = json!({
             "method": "SUBSCRIBE",
@@ -136,9 +136,9 @@ impl CombinedStreamsClient {
         let mut writer_guard = self.writer.lock().await;
         if let Some(writer) = writer_guard.as_mut() {
             writer.send(Message::Text(payload.to_string())).await
-                .map_err(|e| format!("Write error: {}", e))
+                .map_err(|e| anyhow!("Write error: {}", e))
         } else {
-            Err("Not connected".into())
+            Err(anyhow!("Not connected"))
         }
     }
 
