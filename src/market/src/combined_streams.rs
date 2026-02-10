@@ -153,36 +153,37 @@ impl CombinedStreamsClient {
            tokio::select! {
                 // Monitor shutdown signal
                 _ = shutdown_rx.changed() => {
-                    if *shutdown_rx.borrow() {}
-                    info!("receive shutdown signal");
-                    return;
+                    if *shutdown_rx.borrow() {
+                        info!("receive shutdown signal");
+                        return;
+                    }
                 }
 
                 // Monitor websocket message
                 res = read.next() => {
                     match res {
-                    Some(Ok(message)) => {
-                        if let Message::Text(text) = message {
-                            self.handle_combined_message(&text).await;
-                        } else if let Message::Close(_) = message {
-                            warn!("WebSocket was closed by server");
+                        Some(Ok(message)) => {
+                            if let Message::Text(text) = message {
+                                self.handle_combined_message(&text).await;
+                            } else if let Message::Close(_) = message {
+                                warn!("WebSocket was closed by server");
+                                break;
+                            }
+                        }
+                        Some(Err(e)) => {
+                            error!("read error : {}", e);
                             break;
                         }
+                        None => break,
                     }
-                    Some(Err(e)) => {
-                        error!("read error : {}", e);
-                        break;
-                    }
-                    None => break,
-                }
                 }
            }
         }
 
         // Only attempt to reconnect if the connection is not actively closed.
-    if !*shutdown_rx.borrow() {
-        self.handle_reconnect();
-    }
+        if !*shutdown_rx.borrow() {
+            self.handle_reconnect();
+        }
     }
 
     /// Parses the combined message wrapper and dispatches data to subscribers
