@@ -93,7 +93,7 @@ impl CombinedStreamsClient {
             // Binance's bundled streaming subscriptions have frequency limits,
             // so we'll resubscribe in batches here.
             for chunk in streams.chunks(self.batch_size) {
-                self.send_subscribe_payload(chunk.to_vec()).await
+                self.send_subscribe_payload(&chunk.to_vec()).await
                     .map_err(|e| anyhow!(e))?;
                 sleep(Duration::from_millis(100)).await;
             }
