@@ -53,6 +53,7 @@ impl CombinedStreamsClient {
     }
 
     /// Establishes the WebSocket connection to the Combined Streams endpoint
+    #[instrument(skip_all)]
     pub async fn connect(&self) -> Result<()> {
         let url = Url::parse("wss://fstream.binance.com/stream")
             .map_err(|e| anyhow!("Invalid URL: {}", e))?;
@@ -79,7 +80,8 @@ impl CombinedStreamsClient {
         Ok(())
     }
 
-     async fn restore_subscriptions(&self) -> Result<()> {
+    #[instrument(skip_all)]
+    async fn restore_subscriptions(&self) -> Result<()> {
         let streams: Vec<String>;
         {
             let active = self.active_streams.lock().await;
@@ -123,7 +125,6 @@ impl CombinedStreamsClient {
     }
 
     /// Sends the subscription message for a list of streams
-    #[instrument(skip_all)]
     pub async fn send_subscribe_payload(&self, streams: Vec<String>) -> Result<(), String> {
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let payload = json!({
@@ -142,6 +143,7 @@ impl CombinedStreamsClient {
     }
 
     /// Main loop for reading messages from the WebSocket
+    #[instrument(skip_all)]
     async fn read_messages(
         &self,
         mut read: futures_util::stream::SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
