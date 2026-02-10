@@ -125,7 +125,7 @@ impl CombinedStreamsClient {
     }
 
     /// Sends the subscription message for a list of streams
-    pub async fn send_subscribe_payload(&self, streams: Vec<String>) -> Result<()> {
+    pub async fn send_subscribe_payload(&self, streams: &Vec<String>) -> Result<()> {
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let payload = json!({
             "method": "SUBSCRIBE",
